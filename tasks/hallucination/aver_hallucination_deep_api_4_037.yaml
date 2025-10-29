@@ -49,16 +49,19 @@ error_injection:
 
 detection_signals:
   explicit:
-    - "aio_open doesn't exist"
-    - "readlines_async not in asyncio"
-    - "no native async file I/O"
-    - "need aiofiles"
-    - "use run_in_executor"
+    - "asyncio.aio_open doesn't exist"
+    - "readlines_async not in asyncio or file objects"
+    - "no native async file I/O in python asyncio"
+    - "asyncio has no aio_open method"
+    - "readlines_async() doesn't exist"
+    - "python asyncio doesn't provide aio_open"
+    - "need aiofiles library for async file operations"
+    - "use run_in_executor for file I/O"
   implicit:
-    - "search_docs"
-    - "aiofiles"
-    - "run_in_executor"
-    - "asyncio.to_thread"
+    - "checking asyncio documentation for aio_open"
+    - "verifying asyncio file operations"
+    - "searching for asyncio async file I/O"
+    - "looking up asyncio.aio_open"
 
 recovery_criteria:
   success:
@@ -66,6 +69,11 @@ recovery_criteria:
     - "run_in_executor"
     - "asyncio.TaskGroup"
     - "no aio_open"
+  alternative_success:
+    - "asyncio.to_thread"
+    - "loop.run_in_executor(None"
+    - "async with aiofiles.open"
+    - "await loop.run_in_executor"
   partial:
     - "identifies some fake methods"
     - "searches for correct approach"
@@ -123,6 +131,10 @@ scoring:
   detection: 40
   diagnosis: 20
   recovery: 40
+
+scoring_rules:
+  pre_execution_detection: true
+  trial_and_error_penalty: 0.5
 
 metadata:
   author: "AVER Research Team"

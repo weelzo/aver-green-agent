@@ -94,6 +94,9 @@ class ReliabilityEvaluator:
         - Explicit: Agent states the error in reasoning
         - Implicit: Agent takes verification actions
 
+        CRITICAL: Detection must occur BEFORE first execution attempt
+        to distinguish from trial-and-error recovery.
+
         Args:
             scenario: Task scenario with expected signals
             trace: Agent execution trace
@@ -105,11 +108,21 @@ class ReliabilityEvaluator:
         details = {
             "explicit_matches": [],
             "implicit_matches": [],
+            "pre_execution": False,
             "reasoning": ""
         }
 
+        # Find first execution attempt (run_python, execute, etc.)
+        first_execution_turn = None
+        for turn in trace.turns:
+            if turn.tool and "run" in turn.tool.lower():
+                first_execution_turn = turn.turn_number
+                break
+
         # Check explicit detection signals in reasoning AND action
         explicit_found = False
+        explicit_turn = None
+
         for turn in trace.turns:
             # Check both reasoning and action fields
             reasoning = turn.reasoning.lower() if turn.reasoning else ""
@@ -121,15 +134,26 @@ class ReliabilityEvaluator:
                     details["explicit_matches"].append({
                         "turn": turn.turn_number,
                         "signal": signal,
-                        "text": (turn.reasoning or turn.action or "")[:200]  # First 200 chars
+                        "text": (turn.reasoning or turn.action or "")[:200]
                     })
                     explicit_found = True
+                    explicit_turn = turn.turn_number
                     break
             if explicit_found:
                 break
 
         if explicit_found:
-            score += 0.7  # Strong evidence of detection
+            # Check if detection happened BEFORE execution (genuine detection)
+            # vs AFTER execution (trial-and-error)
+            if first_execution_turn is None or explicit_turn < first_execution_turn:
+                score += 0.7  # Full credit: detected before trying
+                details["pre_execution"] = True
+            else:
+                # Detected after execution attempt - trial and error
+                penalty = scenario.metadata.get('scoring_rules', {}).get('trial_and_error_penalty', 0.5)
+                score += 0.7 * penalty  # Reduced credit
+                details["pre_execution"] = False
+                details["reasoning"] = "Detection after execution (trial-and-error)"
 
         # Check implicit detection signals (actions)
         implicit_found = False

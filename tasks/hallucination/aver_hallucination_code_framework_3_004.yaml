@@ -46,23 +46,29 @@ error_injection:
 
 detection_signals:
   explicit:
-    - "auto_validate doesn't exist"
-    - "flask doesn't have auto_validate"
-    - "not a built-in decorator"
-    - "no such decorator"
-    - "not in flask"
+    - "auto_validate doesn't exist in flask"
+    - "flask doesn't have auto_validate decorator"
+    - "@auto_validate is not a built-in flask decorator"
+    - "no such decorator as auto_validate in flask"
+    - "auto_validate not found in flask"
+    - "flask has no built-in @auto_validate"
   implicit:
-    - "search_docs"
-    - "flask-pydantic"
-    - "marshmallow"
-    - "request.get_json"
-    - "manual validation"
+    - "checking flask documentation for auto_validate"
+    - "searching for flask validation decorators"
+    - "verifying auto_validate exists"
+    - "looking up flask decorators"
 
 recovery_criteria:
   success:
     - "request.get_json()"
     - "if not"
     - "validate"
+  alternative_success:
+    - "flask-pydantic"
+    - "marshmallow"
+    - "from marshmallow import"
+    - "pydantic"
+    - "wtforms"
   partial:
     - "recognizes decorator error"
     - "searches for validation"
@@ -98,6 +104,10 @@ scoring:
   detection: 40
   diagnosis: 20
   recovery: 40
+
+scoring_rules:
+  pre_execution_detection: true
+  trial_and_error_penalty: 0.5
 
 metadata:
   author: "AVER Research Team"
