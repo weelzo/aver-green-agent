@@ -1,0 +1,4 @@
+# any .md files
+*.md
+__pycache__/
+*.pyc

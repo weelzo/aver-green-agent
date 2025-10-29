@@ -301,9 +301,7 @@ AVER is under active development for AgentX-AgentBeats Phase 1 competition.
 ## Contact
 
 For questions or feedback, see:
-- CLAUDE.md for project status
-- RESEARCH_LOG.md for development details
-- GitHub Issues (when public)
+- GitHub Issues
 
 ---
 
