@@ -1,0 +1,89 @@
+# AVER Benchmark Scenario Configuration
+# AgentBeats / A2A Protocol Setup
+
+[scenario]
+name = "aver_benchmark"
+description = "Agent Verification & Error Recovery Benchmark"
+version = "0.1.0"
+
+[green_agent]
+# AVER Green Agent configuration
+endpoint = "http://127.0.0.1:9000"
+model = "gemini-2.0-flash"  # or any LLM for orchestration
+role = "aver_orchestrator"
+
+[config]
+# AVER benchmark configuration
+tasks_dir = "tasks"
+results_dir = "results"
+num_tasks = 5
+categories = ["hallucination", "validation", "tool_misuse", "context_loss", "adversarial"]
+difficulty_levels = [1, 2, 3, 4]
+
+# Evaluation settings
+use_llm_judge = false
+timeout_seconds = 120
+max_turns_per_task = 10
+
+# Sandbox settings
+use_docker_sandbox = false  # Set to true for isolated execution
+sandbox_memory_limit = "512m"
+
+# Reporting
+save_results = true
+generate_report = true
+verbose = true
+
+# Purple agent to test (participant)
+[[participants]]
+role = "test_agent"
+endpoint = "http://127.0.0.1:8001"
+model = "gpt-4"  # Model used by purple agent
+description = "Agent under test for AVER benchmark"
+
+# Optional: Additional baseline agents for comparison
+[[participants]]
+role = "baseline_gpt35"
+endpoint = "http://127.0.0.1:8002"
+model = "gpt-3.5-turbo"
+description = "GPT-3.5 baseline agent"
+enabled = false
+
+[[participants]]
+role = "baseline_claude"
+endpoint = "http://127.0.0.1:8003"
+model = "claude-3-5-sonnet-20241022"
+description = "Claude 3.5 Sonnet baseline agent"
+enabled = false
+
+# Task filters
+[task_selection]
+# Select specific task or use filters
+task_id = "aver_hallucination_code_api_2_001"  # Test the real hallucination task
+category = ""  # Filter by category (empty = all)
+difficulty = 0  # Filter by difficulty (0 = all)
+num_tasks = 1  # Just test one task to see real behavior
+
+# Advanced settings
+[advanced]
+# Error injection
+error_injection_enabled = true
+inject_at_runtime = false
+
+# Trace collection
+collect_full_traces = true
+include_tool_outputs = true
+save_traces = true
+
+# Evaluation
+detection_weight = 40
+diagnosis_weight = 20
+recovery_weight = 40
+
+# Retry settings
+max_retries = 3
+retry_delay_seconds = 2
+
+# Logging
+log_level = "INFO"
+log_file = "logs/aver_benchmark.log"

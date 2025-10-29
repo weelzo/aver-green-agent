@@ -234,6 +234,7 @@ class AgentTrace:
     agent_id: str
     turns: List[AgentTurn] = field(default_factory=list)
     final_output: str = ""
+    model_name: str = ""  # Track which model was used
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     def add_turn(self, turn: AgentTurn):
@@ -245,6 +246,7 @@ class AgentTrace:
         return {
             "task_id": self.task_id,
             "agent_id": self.agent_id,
+            "model_name": self.model_name,
             "turns": [turn.to_dict() for turn in self.turns],
             "final_output": self.final_output,
             "metadata": self.metadata
@@ -271,6 +273,7 @@ class EvaluationMetrics:
     recovery_details: Dict[str, Any] = field(default_factory=dict)
 
     # Metadata
+    model_name: str = ""  # Track which model was tested
     num_turns: int = 0
     execution_time_seconds: float = 0.0
     timestamp: str = ""
@@ -280,6 +283,7 @@ class EvaluationMetrics:
         return {
             "task_id": self.task_id,
             "agent_id": self.agent_id,
+            "model_name": self.model_name,
             "scores": {
                 "detection": round(self.detection_score, 3),
                 "diagnosis": round(self.diagnosis_score, 3),
@@ -303,6 +307,7 @@ class EvaluationMetrics:
         return (
             f"Task: {self.task_id}\n"
             f"Agent: {self.agent_id}\n"
+            f"Model: {self.model_name}\n"
             f"Detection: {self.detection_score:.2f} ({self.detection_score*100:.0f}%)\n"
             f"Diagnosis: {self.diagnosis_score:.2f} ({self.diagnosis_score*100:.0f}%)\n"
             f"Recovery: {self.recovery_score:.2f} ({self.recovery_score*100:.0f}%)\n"

@@ -1,0 +1,525 @@
+"""
+AVER Green Agent
+
+Main orchestration engine for the AVER benchmark.
+Coordinates task execution, error injection, trace collection, and evaluation.
+
+Architecture:
+1. Load task from TaskSuite
+2. Inject error at specified point
+3. Send task to purple agent (test agent)
+4. Collect execution trace
+5. Evaluate with ReliabilityEvaluator
+6. Generate results and artifacts
+"""
+
+import asyncio
+import json
+from typing import Dict, List, Optional, Any
+from datetime import datetime
+from pathlib import Path
+
+from .models import (
+    TaskScenario,
+    AgentTrace,
+    AgentTurn,
+    EvaluationMetrics,
+    InjectionPoint
+)
+from .task_suite import TaskSuite
+from .evaluator import ReliabilityEvaluator
+from .error_injector import ErrorInjector
+from .trace_analyzer import TraceAnalyzer
+
+
+class AVERGreenAgent:
+    """
+    Main AVER Green Agent
+
+    Orchestrates the entire AVER benchmark assessment:
+    - Task selection and preparation
+    - Error injection
+    - Agent execution monitoring
+    - Trace collection
+    - Evaluation and scoring
+    """
+
+    def __init__(
+        self,
+        tasks_dir: str = "tasks",
+        results_dir: str = "results",
+        use_llm_judge: bool = False
+    ):
+        """
+        Initialize AVER Green Agent
+
+        Args:
+            tasks_dir: Directory containing task YAML files
+            results_dir: Directory to save evaluation results
+            use_llm_judge: Whether to use LLM for diagnosis scoring
+        """
+        self.task_suite = TaskSuite(tasks_dir)
+        self.evaluator = ReliabilityEvaluator(use_llm_judge=use_llm_judge)
+        self.error_injector = ErrorInjector()
+        self.trace_analyzer = TraceAnalyzer()
+
+        self.results_dir = Path(results_dir)
+        self.results_dir.mkdir(exist_ok=True)
+
+        # Load all tasks
+        num_tasks = self.task_suite.load_all_tasks()
+        print(f"[AVER] Loaded {num_tasks} tasks")
+
+    async def assess_agent(
+        self,
+        agent_url: str,
+        agent_id: str,
+        task_id: Optional[str] = None,
+        category: Optional[str] = None,
+        difficulty: Optional[int] = None,
+        num_tasks: int = 1
+    ) -> List[EvaluationMetrics]:
+        """
+        Assess an agent on AVER benchmark tasks
+
+        Args:
+            agent_url: URL of the purple agent to test
+            agent_id: Identifier for the agent
+            task_id: Specific task ID (if None, random selection)
+            category: Task category filter
+            difficulty: Task difficulty filter
+            num_tasks: Number of tasks to run (if task_id not specified)
+
+        Returns:
+            List of evaluation metrics
+        """
+        print(f"[AVER] Starting assessment of agent: {agent_id}")
+        print(f"[AVER] Agent URL: {agent_url}")
+
+        results = []
+
+        # Select tasks
+        if task_id:
+            task = self.task_suite.get_task_by_id(task_id)
+            if not task:
+                raise ValueError(f"Task {task_id} not found")
+            tasks = [task]
+        else:
+            tasks = self._select_tasks(category, difficulty, num_tasks)
+
+        print(f"[AVER] Running {len(tasks)} task(s)")
+
+        # Run each task
+        for i, task in enumerate(tasks, 1):
+            print(f"\n[AVER] Task {i}/{len(tasks)}: {task.task_id}")
+            print(f"[AVER]   Category: {task.category.value}")
+            print(f"[AVER]   Difficulty: {task.difficulty.value}")
+
+            try:
+                metrics = await self._run_single_task(agent_url, agent_id, task)
+                results.append(metrics)
+
+                print(f"[AVER]   Score: {metrics.total_score:.1f}/100")
+                print(f"[AVER]   Detection: {metrics.detection_score:.2f}, "
+                      f"Diagnosis: {metrics.diagnosis_score:.2f}, "
+                      f"Recovery: {metrics.recovery_score:.2f}")
+
+            except Exception as e:
+                print(f"[AVER]   ERROR: {e}")
+                continue
+
+        # Save results
+        self._save_results(agent_id, results)
+
+        # Print summary
+        self._print_summary(agent_id, results)
+
+        return results
+
+    async def _run_single_task(
+        self,
+        agent_url: str,
+        agent_id: str,
+        task: TaskScenario
+    ) -> EvaluationMetrics:
+        """
+        Run a single task and evaluate
+
+        Args:
+            agent_url: Purple agent URL
+            agent_id: Agent identifier
+            task: Task to run
+
+        Returns:
+            EvaluationMetrics
+        """
+        start_time = datetime.now()
+
+        # Step 1: Inject error
+        print(f"[AVER]   Injecting error at: {task.error_injection.injection_point.value}")
+        injected_task = self.error_injector.inject_error(task)
+
+        # Step 2: Execute agent
+        print(f"[AVER]   Executing agent...")
+        trace = await self._execute_agent(agent_url, agent_id, injected_task)
+
+        # Step 3: Evaluate
+        print(f"[AVER]   Evaluating...")
+        execution_time = (datetime.now() - start_time).total_seconds()
+        metrics = self.evaluator.evaluate(task, trace, execution_time)
+
+        return metrics
+
+    async def _execute_agent(
+        self,
+        agent_url: str,
+        agent_id: str,
+        task: TaskScenario
+    ) -> AgentTrace:
+        """
+        Execute purple agent on task and collect trace
+
+        Args:
+            agent_url: Agent URL
+            agent_id: Agent identifier
+            task: Task to execute
+
+        Returns:
+            AgentTrace with execution history
+        """
+        # Initialize trace
+        trace = AgentTrace(
+            task_id=task.task_id,
+            agent_id=agent_id
+        )
+
+        # Build initial message
+        message = self._build_task_message(task)
+
+        print(f"[AVER]     Task description: {task.task_description[:100]}...")
+        print(f"[AVER]     Available tools: {[t.name for t in task.tools]}")
+
+        # Use A2A protocol to communicate with real agent
+        try:
+            from .a2a_client import A2AClient, A2ATraceCollector
+
+            print(f"[AVER]     Connecting to agent at: {agent_url}")
+
+            # Create A2A client
+            client = A2AClient(agent_url=agent_url, timeout=120)
+            collector = A2ATraceCollector()
+
+            # Build task content
+            task_content = f"{task.task_description}\n\nAvailable tools:\n"
+            for tool in task.tools:
+                task_content += f"- {tool.name}: {tool.description}\n"
+
+            # Send task to agent
+            response = await client.start_conversation(task_content)
+            collector.add_message(response)
+
+            print(f"[AVER]     Received response from agent ({len(response.content)} chars)")
+
+            # Extract model name from response metadata
+            model_name = response.metadata.get("model", "unknown")
+
+            # Convert to trace
+            trace = collector.to_agent_trace(
+                task_id=task.task_id,
+                agent_id=agent_id,
+                final_output=response.content,
+                model_name=model_name
+            )
+
+            print(f"[AVER]     Model used: {model_name}")
+
+            # Close client
+            await client.close()
+
+        except Exception as e:
+            print(f"[AVER]     ⚠️  Error connecting to agent: {e}")
+            print(f"[AVER]     Falling back to placeholder trace")
+
+            # Fallback: Create placeholder trace
+            turn = AgentTurn(
+                turn_number=1,
+                reasoning="[Error: Could not connect to agent]",
+                action="[Error: Could not connect to agent]",
+                tool=None,
+                tool_input=None,
+                tool_output=None
+            )
+            trace.add_turn(turn)
+            trace.final_output = "[Error: Could not connect to agent]"
+
+        return trace
+
+    def _build_task_message(self, task: TaskScenario) -> Dict[str, Any]:
+        """
+        Build task message for purple agent
+
+        Args:
+            task: Task scenario
+
+        Returns:
+            Message dictionary
+        """
+        return {
+            "task_id": task.task_id,
+            "description": task.task_description,
+            "tools": [tool.to_dict() for tool in task.tools],
+            "optimal_turns": task.optimal_turns
+        }
+
+    def _select_tasks(
+        self,
+        category: Optional[str],
+        difficulty: Optional[int],
+        num_tasks: int
+    ) -> List[TaskScenario]:
+        """
+        Select tasks based on criteria
+
+        Args:
+            category: Category filter
+            difficulty: Difficulty filter
+            num_tasks: Number of tasks to select
+
+        Returns:
+            List of selected tasks
+        """
+        from .models import ErrorCategory, DifficultyLevel
+
+        tasks = []
+
+        # Convert filters
+        cat_filter = ErrorCategory(category) if category else None
+        diff_filter = DifficultyLevel(difficulty) if difficulty else None
+
+        # Select random tasks
+        for _ in range(num_tasks):
+            task = self.task_suite.select_random(
+                category=cat_filter,
+                difficulty=diff_filter
+            )
+            if task:
+                tasks.append(task)
+
+        return tasks
+
+    def _save_results(self, agent_id: str, results: List[EvaluationMetrics]):
+        """
+        Save evaluation results to file
+
+        Args:
+            agent_id: Agent identifier
+            results: List of evaluation metrics
+        """
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"{agent_id}_{timestamp}.json"
+        filepath = self.results_dir / filename
+
+        data = {
+            "agent_id": agent_id,
+            "timestamp": datetime.now().isoformat(),
+            "num_tasks": len(results),
+            "results": [r.to_dict() for r in results]
+        }
+
+        # Calculate aggregate scores
+        if results:
+            data["aggregate_scores"] = {
+                "avg_detection": sum(r.detection_score for r in results) / len(results),
+                "avg_diagnosis": sum(r.diagnosis_score for r in results) / len(results),
+                "avg_recovery": sum(r.recovery_score for r in results) / len(results),
+                "avg_total": sum(r.total_score for r in results) / len(results)
+            }
+
+        with open(filepath, 'w') as f:
+            json.dump(data, f, indent=2)
+
+        print(f"\n[AVER] Results saved to: {filepath}")
+
+    def _print_summary(self, agent_id: str, results: List[EvaluationMetrics]):
+        """
+        Print evaluation summary
+
+        Args:
+            agent_id: Agent identifier
+            results: List of metrics
+        """
+        if not results:
+            print("\n[AVER] No results to summarize")
+            return
+
+        print("\n" + "="*80)
+        print("AVER EVALUATION SUMMARY")
+        print("="*80)
+        print(f"Agent: {agent_id}")
+        print(f"Tasks: {len(results)}")
+        print()
+
+        # Aggregate scores
+        avg_detection = sum(r.detection_score for r in results) / len(results)
+        avg_diagnosis = sum(r.diagnosis_score for r in results) / len(results)
+        avg_recovery = sum(r.recovery_score for r in results) / len(results)
+        avg_total = sum(r.total_score for r in results) / len(results)
+
+        print(f"Average Detection:  {avg_detection:.2f} ({avg_detection*100:.0f}%)")
+        print(f"Average Diagnosis:  {avg_diagnosis:.2f} ({avg_diagnosis*100:.0f}%)")
+        print(f"Average Recovery:   {avg_recovery:.2f} ({avg_recovery*100:.0f}%)")
+        print(f"Average Total:      {avg_total:.1f}/100")
+        print()
+
+        # Per-category breakdown
+        by_category = {}
+        for result in results:
+            # Extract category from task_id (e.g., "aver_hallucination_...")
+            parts = result.task_id.split('_')
+            if len(parts) > 1:
+                cat = parts[1]
+                if cat not in by_category:
+                    by_category[cat] = []
+                by_category[cat].append(result)
+
+        if by_category:
+            print("By Category:")
+            for cat, cat_results in by_category.items():
+                cat_avg = sum(r.total_score for r in cat_results) / len(cat_results)
+                print(f"  {cat.capitalize():15s}: {cat_avg:.1f}/100 ({len(cat_results)} tasks)")
+
+        print("="*80)
+
+
+class MockPurpleAgent:
+    """
+    Mock purple agent for testing AVER infrastructure
+
+    This is a simple agent that demonstrates expected behavior patterns.
+    Used for development and testing before integrating real agents.
+    """
+
+    def __init__(self, agent_id: str = "mock_agent"):
+        self.agent_id = agent_id
+
+    async def execute_task(self, task: Dict[str, Any]) -> AgentTrace:
+        """
+        Execute a task and return trace
+
+        Args:
+            task: Task dictionary
+
+        Returns:
+            AgentTrace
+        """
+        trace = AgentTrace(
+            task_id=task["task_id"],
+            agent_id=self.agent_id
+        )
+
+        # Simulate thinking and acting
+        turn1 = AgentTurn(
+            turn_number=1,
+            reasoning="I need to write a Python function to parse YAML files. "
+                     "The task suggests using yamlparser library.",
+            action="Attempt to import yamlparser",
+            tool="run_python",
+            tool_input={"code": "import yamlparser"},
+            tool_output="ModuleNotFoundError: No module named 'yamlparser'"
+        )
+        trace.add_turn(turn1)
+
+        turn2 = AgentTurn(
+            turn_number=2,
+            reasoning="yamlparser doesn't exist. I should search for the correct library.",
+            action="Search for Python YAML libraries",
+            tool="search_docs",
+            tool_input={"query": "python yaml parsing"},
+            tool_output="PyYAML is the standard library for YAML parsing in Python. "
+                       "Use yaml.safe_load() to parse YAML files safely."
+        )
+        trace.add_turn(turn2)
+
+        turn3 = AgentTurn(
+            turn_number=3,
+            reasoning="I'll use the yaml module with safe_load() method.",
+            action="Write function using yaml.safe_load()",
+            tool="run_python",
+            tool_input={"code": """
+import yaml
+
+def parse_yaml_file(file_path):
+    try:
+        with open(file_path, 'r') as file:
+            data = yaml.safe_load(file)
+        return data
+    except FileNotFoundError:
+        print(f"Error: File {file_path} not found")
+        return None
+    except yaml.YAMLError as e:
+        print(f"Error parsing YAML: {e}")
+        return None
+
+print("Function created successfully")
+"""},
+            tool_output="Function created successfully"
+        )
+        trace.add_turn(turn3)
+
+        trace.final_output = """
+import yaml
+
+def parse_yaml_file(file_path):
+    try:
+        with open(file_path, 'r') as file:
+            data = yaml.safe_load(file)
+        return data
+    except FileNotFoundError:
+        print(f"Error: File {file_path} not found")
+        return None
+    except yaml.YAMLError as e:
+        print(f"Error parsing YAML: {e}")
+        return None
+"""
+
+        return trace
+
+
+async def main():
+    """
+    Example usage of AVER Green Agent
+    """
+    print("="*80)
+    print("AVER Green Agent - Example Usage")
+    print("="*80)
+    print()
+
+    # Initialize green agent
+    green_agent = AVERGreenAgent(
+        tasks_dir="tasks",
+        results_dir="results"
+    )
+
+    # Show task statistics
+    stats = green_agent.task_suite.get_statistics()
+    print("Task Suite Statistics:")
+    print(f"  Total tasks: {stats['total_tasks']}")
+    print(f"  By category: {stats['by_category']}")
+    print()
+
+    # Create mock purple agent for testing
+    print("Testing with MockPurpleAgent...")
+    print()
+
+    # Run assessment on specific task
+    results = await green_agent.assess_agent(
+        agent_url="http://localhost:8000",  # Placeholder
+        agent_id="mock_agent_v1",
+        task_id="aver_hallucination_code_api_2_001"
+    )
+
+    print("\nAssessment complete!")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

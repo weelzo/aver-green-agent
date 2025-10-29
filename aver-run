@@ -1,0 +1,22 @@
+#!/usr/bin/env python3
+"""
+AVER Runner - Run AVER benchmark from scenario file
+
+Usage (just like AgentBeats tutorial):
+    ./aver-run scenarios/aver/scenario.toml
+
+Or:
+    python3 aver-run scenarios/aver/scenario.toml
+"""
+
+import sys
+from pathlib import Path
+
+# Add src to path
+sys.path.insert(0, str(Path(__file__).parent))
+
+# Import and run CLI
+from src.aver.cli import main
+
+if __name__ == "__main__":
+    main()

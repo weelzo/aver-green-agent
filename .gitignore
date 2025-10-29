@@ -2,3 +2,5 @@
 *.md
 __pycache__/
 *.pyc
+.env
+results/

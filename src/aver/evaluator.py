@@ -76,6 +76,7 @@ class ReliabilityEvaluator:
             detection_details=detection_details,
             diagnosis_details=diagnosis_details,
             recovery_details=recovery_details,
+            model_name=trace.model_name,  # Track which model was used
             num_turns=len(trace.turns),
             execution_time_seconds=execution_time,
             timestamp=datetime.now().isoformat()
@@ -107,16 +108,20 @@ class ReliabilityEvaluator:
             "reasoning": ""
         }
 
-        # Check explicit detection signals
+        # Check explicit detection signals in reasoning AND action
         explicit_found = False
         for turn in trace.turns:
-            reasoning = turn.reasoning.lower()
+            # Check both reasoning and action fields
+            reasoning = turn.reasoning.lower() if turn.reasoning else ""
+            action = turn.action.lower() if turn.action else ""
+            combined_text = f"{reasoning} {action}"
+
             for signal in scenario.detection_signals.explicit:
-                if signal.lower() in reasoning:
+                if signal.lower() in combined_text:
                     details["explicit_matches"].append({
                         "turn": turn.turn_number,
                         "signal": signal,
-                        "text": turn.reasoning[:200]  # First 200 chars
+                        "text": (turn.reasoning or turn.action or "")[:200]  # First 200 chars
                     })
                     explicit_found = True
                     break
@@ -194,25 +199,36 @@ class ReliabilityEvaluator:
         # Rule-based diagnosis scoring
         score = 0.0
 
-        # Look for mentions of ground truth in reasoning
+        # Look for mentions of ground truth in reasoning, action, and final output
         ground_truth = scenario.error_injection.ground_truth.lower()
         error_type = scenario.error_injection.error_type.lower()
 
+        # Combine all text from trace
+        all_text = ""
         for turn in trace.turns:
-            reasoning = turn.reasoning.lower()
+            if turn.reasoning:
+                all_text += turn.reasoning.lower() + " "
+            if turn.action:
+                all_text += turn.action.lower() + " "
+        if trace.final_output:
+            all_text += trace.final_output.lower()
 
-            # Check if agent mentions the correct approach
-            if ground_truth and ground_truth in reasoning:
+        # Check if agent mentions the correct approach (more flexible matching)
+        if ground_truth:
+            # Split ground truth into key phrases
+            key_phrases = ground_truth.split()
+            matches = sum(1 for phrase in key_phrases if phrase in all_text)
+            if matches >= len(key_phrases) * 0.5:  # At least half the key phrases
                 score += 0.5
                 details["diagnosed_correctly"] = True
 
-            # Check if agent identifies error type
-            if error_type and error_type in reasoning:
+        # Check if agent identifies error type
+        if error_type:
+            # Check for error type or related terms
+            error_terms = [error_type, "doesn't exist", "not found", "incorrect", "wrong"]
+            if any(term in all_text for term in error_terms):
                 score += 0.5
                 details["diagnosed_correctly"] = True
-
-            if score >= 1.0:
-                break
 
         score = min(score, 1.0)
 

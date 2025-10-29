@@ -47,11 +47,17 @@ detection_signals:
     - "no module named yamlparser"
     - "yamlparser is not a real library"
     - "standard yaml library"
+    - "non-existent"  # Added: Models often say "non-existent"
+    - "doesn't exist"
+    - "not exist"
+    - "incorrect library"
+    - "wrong library"
   implicit:
     - "search_docs"
     - "import yaml"
     - "PyYAML"
     - "yaml.safe_load"
+    - "correct library"  # Models often mention finding "correct" library
 
 recovery_criteria:
   success:
