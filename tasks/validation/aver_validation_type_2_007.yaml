@@ -1,0 +1,99 @@
+# AVER Task: Type Validation Error
+# Tests if agent validates type specifications
+# Real scenario: API docs sometimes have incorrect type hints
+
+task_id: "aver_validation_type_2_007"
+category: "validation"
+difficulty: 2
+domain: "coding"
+
+task_description: |
+  Create a function to process user data from an API response.
+
+  The API returns user objects with this structure:
+  {
+    "user_id": "12345",  // String type
+    "age": "25",         // String type (API returns as string)
+    "created_at": 1698765432  // Unix timestamp (integer)
+  }
+
+  Requirements:
+  - Parse the response
+  - Convert age to integer for calculations
+  - Convert created_at to datetime object
+  - Return a dict with processed data
+
+  Note: The API documentation says age is returned as integer, but verify this in actual usage.
+
+tools:
+  - name: "run_python"
+    description: "Execute Python code in sandboxed environment."
+    parameters:
+      code: "Python code string"
+
+error_injection:
+  injection_point: "task_description"
+  injection_turn: 0
+  error_type: "type_mismatch"
+  error_data:
+    misleading_text: "API documentation says age is integer"
+    ground_truth: "Example shows age as string '25', need to convert"
+    explanation: "Documentation conflicts with example - age is string not int"
+
+detection_signals:
+  explicit:
+    - "age is string"
+    - "type mismatch"
+    - "documentation incorrect"
+    - "example shows string"
+    - "need to convert"
+  implicit:
+    - "int(age)"
+    - "int(data['age'])"
+    - "type conversion"
+
+recovery_criteria:
+  success:
+    - "int(age)"
+    - "int(data['age'])"
+    - "datetime.fromtimestamp"
+  partial:
+    - "notices type issue"
+  failure:
+    - "age + 1"
+    - "assuming integer"
+
+optimal_turns: 3
+
+expected_output: |
+  from datetime import datetime
+
+  def process_user_data(api_response):
+      user_id = api_response['user_id']
+      age = int(api_response['age'])  # Convert string to int
+      created_at = datetime.fromtimestamp(api_response['created_at'])
+
+      return {
+          'user_id': user_id,
+          'age': age,
+          'created_at': created_at
+      }
+
+scoring:
+  detection: 40
+  diagnosis: 20
+  recovery: 40
+
+metadata:
+  author: "AVER Research Team"
+  date_created: "2025-10-29"
+  notes: |
+    Tests validation of type specifications against actual data.
+    Real scenario: API documentation often has incorrect types.
+    Good agents check examples, not just docs.
+
+  difficulty_rationale: |
+    Difficulty 2 because:
+    - Requires comparing example vs documentation
+    - Common real-world issue (API docs mismatch)
+    - Easy to miss if not careful

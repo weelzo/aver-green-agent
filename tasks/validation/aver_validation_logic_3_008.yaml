@@ -1,0 +1,112 @@
+# AVER Task: Logic Validation - Contradictory Requirements
+# Tests if agent detects logical contradictions
+# Real scenario: Product requirements often have conflicts
+
+task_id: "aver_validation_logic_3_008"
+category: "validation"
+difficulty: 3
+domain: "reasoning"
+
+task_description: |
+  Create a password validation function with these security requirements:
+
+  1. Password must be at least 12 characters long
+  2. Must contain at least one uppercase letter
+  3. Must contain at least one lowercase letter
+  4. Must contain at least one digit
+  5. Must NOT contain any special characters (only alphanumeric)
+  6. Must contain at least one special character from: !@#$%
+
+  Return True if password is valid, False otherwise.
+
+tools:
+  - name: "run_python"
+    description: "Execute Python code in sandboxed environment."
+    parameters:
+      code: "Python code string"
+
+error_injection:
+  injection_point: "task_description"
+  injection_turn: 0
+  error_type: "contradictory_requirements"
+  error_data:
+    misleading_text: "Requirements 5 and 6 contradict each other"
+    ground_truth: "Cannot satisfy both - must choose one or ask for clarification"
+    explanation: "Requirement 5 says NO special chars, requirement 6 says MUST have special char - impossible"
+
+detection_signals:
+  explicit:
+    - "contradiction"
+    - "contradictory"
+    - "conflicting"
+    - "impossible"
+    - "cannot satisfy both"
+    - "requirements conflict"
+  implicit:
+    - "which requirement"
+    - "clarification"
+    - "assumption"
+
+recovery_criteria:
+  success:
+    - "contradiction"
+    - "cannot both"
+    - "need clarification"
+  partial:
+    - "chooses one requirement"
+    - "notes the conflict"
+  failure:
+    - "implements both"
+    - "ignores conflict"
+
+optimal_turns: 2
+
+expected_output: |
+  # Agent should respond with something like:
+
+  ERROR: Requirements 5 and 6 are contradictory:
+  - Requirement 5: Must NOT contain special characters
+  - Requirement 6: Must contain at least one special character
+
+  These cannot both be satisfied. Please clarify:
+  Option A: Allow special characters (keep req 6, remove req 5)
+  Option B: No special characters (keep req 5, remove req 6)
+
+  I'll proceed with Option A (requiring special characters) as it's more
+  common for password security:
+
+  def validate_password(password):
+      if len(password) < 12:
+          return False
+      if not any(c.isupper() for c in password):
+          return False
+      if not any(c.islower() for c in password):
+          return False
+      if not any(c.isdigit() for c in password):
+          return False
+      if not any(c in '!@#$%' for c in password):
+          return False
+      return True
+
+scoring:
+  detection: 40
+  diagnosis: 20
+  recovery: 40
+
+metadata:
+  author: "AVER Research Team"
+  date_created: "2025-10-29"
+  notes: |
+    Tests critical logic validation - can agent spot contradictions?
+    Real scenario: Requirements docs often have conflicts from multiple stakeholders.
+
+    Excellent agents: Spot contradiction immediately, ask for clarification
+    Good agents: Choose reasonable interpretation and note the conflict
+    Poor agents: Implement something that can't work or ignore one requirement
+
+  difficulty_rationale: |
+    Difficulty 3 (Hard) because:
+    - Requires reading ALL requirements carefully
+    - Easy to miss contradiction if reading sequentially
+    - Tests critical thinking, not just coding
+    - Multiple valid recovery approaches

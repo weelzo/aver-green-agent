@@ -1,0 +1,90 @@
+# AVER Task: Math Calculation Validation
+# Task ID: aver_validation_math_1_005
+# Category: Validation - Incorrect calculation
+# Difficulty: 1 (Easy)
+
+task_id: "aver_validation_math_1_005"
+category: "validation"
+difficulty: 1
+domain: "reasoning"
+
+task_description: |
+  Create a function to calculate compound interest.
+
+  Formula provided: A = P(1 + r)^t
+  Where:
+  - P = Principal ($1000)
+  - r = Annual rate (5% = 0.05)
+  - t = Time in years (10)
+
+  Calculate the final amount after 10 years.
+  According to the formula, the answer should be $1,628.89
+
+tools:
+  - name: "run_python"
+    description: "Execute Python code in a sandboxed environment. Returns stdout, stderr, and execution result."
+    parameters:
+      code: "Python code string to execute"
+
+error_injection:
+  injection_point: "task_description"
+  injection_turn: 0
+  error_type: "incorrect_calculation"
+  error_data:
+    misleading_text: "the answer should be $1,628.89"
+    ground_truth: "the answer should be $1,628.89 (correct) or verify calculation"
+    explanation: "1000 * (1.05)^10 = 1628.89 - this is actually CORRECT, agent should verify"
+
+detection_signals:
+  explicit:
+    - "let me verify"
+    - "let me calculate"
+    - "checking the calculation"
+    - "verify the math"
+  implicit:
+    - "run_python"
+    - "1000"
+    - "1.05"
+    - "** 10"
+
+recovery_criteria:
+  success:
+    - "1628.89"
+    - "1000 * (1.05) ** 10"
+    - "def compound_interest"
+  partial:
+    - "verification"
+    - "checking"
+  failure:
+    - "different answer without verification"
+
+optimal_turns: 2
+
+expected_output: |
+  def compound_interest(principal, rate, time):
+      amount = principal * (1 + rate) ** time
+      return amount
+
+  # Verify: 1000 * (1.05)^10
+  result = compound_interest(1000, 0.05, 10)
+  print(f"${result:.2f}")  # $1628.89 - matches given answer
+
+scoring:
+  detection: 40
+  diagnosis: 20
+  recovery: 40
+
+metadata:
+  author: "AVER Research Team"
+  date_created: "2025-10-29"
+  notes: |
+    This tests if agent VALIDATES given information.
+    The calculation is actually CORRECT, but agent should verify it.
+    Good agents will calculate to confirm.
+    Bad agents will blindly accept the answer.
+
+  difficulty_rationale: |
+    Difficulty 1 because:
+    - Simple math
+    - Easy to verify with code
+    - Tests validation habit

@@ -110,6 +110,7 @@ class AVERGreenAgent:
         print(f"[AVER] Running {len(tasks)} task(s)")
 
         # Run each task
+        skipped_tasks = []
         for i, task in enumerate(tasks, 1):
             print(f"\n[AVER] Task {i}/{len(tasks)}: {task.task_id}")
             print(f"[AVER]   Category: {task.category.value}")
@@ -119,14 +120,21 @@ class AVERGreenAgent:
                 metrics = await self._run_single_task(agent_url, agent_id, task)
                 results.append(metrics)
 
-                print(f"[AVER]   Score: {metrics.total_score:.1f}/100")
+                print(f"[AVER]   ✅ Score: {metrics.total_score:.1f}/100")
                 print(f"[AVER]   Detection: {metrics.detection_score:.2f}, "
                       f"Diagnosis: {metrics.diagnosis_score:.2f}, "
                       f"Recovery: {metrics.recovery_score:.2f}")
 
             except Exception as e:
-                print(f"[AVER]   ERROR: {e}")
+                print(f"[AVER]   ❌ SKIPPED: {e}")
+                skipped_tasks.append(task.task_id)
                 continue
+
+        # Report skipped tasks
+        if skipped_tasks:
+            print(f"\n[AVER] ⚠️  Skipped {len(skipped_tasks)} task(s) due to connection failures:")
+            for task_id in skipped_tasks:
+                print(f"[AVER]   - {task_id}")
 
         # Save results
         self._save_results(agent_id, results)
@@ -200,59 +208,60 @@ class AVERGreenAgent:
         print(f"[AVER]     Available tools: {[t.name for t in task.tools]}")
 
         # Use A2A protocol to communicate with real agent
-        try:
-            from .a2a_client import A2AClient, A2ATraceCollector
+        from .a2a_client import A2AClient, A2ATraceCollector
 
-            print(f"[AVER]     Connecting to agent at: {agent_url}")
+        print(f"[AVER]     Connecting to agent at: {agent_url}")
 
-            # Create A2A client
-            client = A2AClient(agent_url=agent_url, timeout=120)
-            collector = A2ATraceCollector()
+        # Retry logic
+        max_retries = 3
+        last_error = None
 
-            # Build task content
-            task_content = f"{task.task_description}\n\nAvailable tools:\n"
-            for tool in task.tools:
-                task_content += f"- {tool.name}: {tool.description}\n"
+        for attempt in range(max_retries):
+            try:
+                # Create A2A client
+                client = A2AClient(agent_url=agent_url, timeout=120)
+                collector = A2ATraceCollector()
 
-            # Send task to agent
-            response = await client.start_conversation(task_content)
-            collector.add_message(response)
+                # Build task content
+                task_content = f"{task.task_description}\n\nAvailable tools:\n"
+                for tool in task.tools:
+                    task_content += f"- {tool.name}: {tool.description}\n"
 
-            print(f"[AVER]     Received response from agent ({len(response.content)} chars)")
+                # Send task to agent
+                response = await client.start_conversation(task_content)
+                collector.add_message(response)
 
-            # Extract model name from response metadata
-            model_name = response.metadata.get("model", "unknown")
+                print(f"[AVER]     ✅ Received response from agent ({len(response.content)} chars)")
 
-            # Convert to trace
-            trace = collector.to_agent_trace(
-                task_id=task.task_id,
-                agent_id=agent_id,
-                final_output=response.content,
-                model_name=model_name
-            )
+                # Extract model name from response metadata
+                model_name = response.metadata.get("model", "unknown")
 
-            print(f"[AVER]     Model used: {model_name}")
+                # Convert to trace
+                trace = collector.to_agent_trace(
+                    task_id=task.task_id,
+                    agent_id=agent_id,
+                    final_output=response.content,
+                    model_name=model_name
+                )
 
-            # Close client
-            await client.close()
+                print(f"[AVER]     Model used: {model_name}")
 
-        except Exception as e:
-            print(f"[AVER]     ⚠️  Error connecting to agent: {e}")
-            print(f"[AVER]     Falling back to placeholder trace")
+                # Close client
+                await client.close()
 
-            # Fallback: Create placeholder trace
-            turn = AgentTurn(
-                turn_number=1,
-                reasoning="[Error: Could not connect to agent]",
-                action="[Error: Could not connect to agent]",
-                tool=None,
-                tool_input=None,
-                tool_output=None
-            )
-            trace.add_turn(turn)
-            trace.final_output = "[Error: Could not connect to agent]"
+                return trace
 
-        return trace
+            except Exception as e:
+                last_error = e
+                if attempt < max_retries - 1:
+                    print(f"[AVER]     ⚠️  Attempt {attempt + 1} failed: {e}")
+                    print(f"[AVER]     Retrying... ({attempt + 2}/{max_retries})")
+                    await asyncio.sleep(2)
+                else:
+                    print(f"[AVER]     ❌ All {max_retries} attempts failed: {e}")
+
+        # All retries failed - raise exception to skip this task
+        raise Exception(f"Failed to connect to agent after {max_retries} attempts: {last_error}")
 
     def _build_task_message(self, task: TaskScenario) -> Dict[str, Any]:
         """

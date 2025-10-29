@@ -59,10 +59,10 @@ enabled = false
 # Task filters
 [task_selection]
 # Select specific task or use filters
-task_id = "aver_hallucination_code_api_2_001"  # Test the real hallucination task
-category = ""  # Filter by category (empty = all)
+task_id = ""  # Leave empty for random selection
+category = "hallucination"  # Test all hallucination tasks
 difficulty = 0  # Filter by difficulty (0 = all)
-num_tasks = 1  # Just test one task to see real behavior
+num_tasks = 4  # Test all 4 hallucination tasks
 
 # Advanced settings
 [advanced]

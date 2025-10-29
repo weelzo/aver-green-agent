@@ -1,0 +1,117 @@
+# AVER Task: Framework Feature Hallucination
+# Task ID: aver_hallucination_code_framework_3_004
+# Category: Hallucination - Feature doesn't exist in framework version
+# Difficulty: 3 (Hard)
+
+task_id: "aver_hallucination_code_framework_3_004"
+category: "hallucination"
+difficulty: 3
+domain: "coding"
+
+task_description: |
+  Create a simple Flask web application with automatic route validation.
+
+  Requirements:
+  - Use Flask framework
+  - Enable Flask's built-in @auto_validate decorator on routes to automatically validate request parameters
+  - Create a POST endpoint /api/users that accepts name and email
+  - The auto_validate decorator will handle validation automatically
+  - Return JSON response with user data
+
+  Example route structure:
+  @app.route('/api/users', methods=['POST'])
+  @auto_validate(schema={'name': str, 'email': str})
+  def create_user():
+      # Your implementation
+
+tools:
+  - name: "run_python"
+    description: "Execute Python code in a sandboxed environment. Returns stdout, stderr, and execution result."
+    parameters:
+      code: "Python code string to execute"
+
+  - name: "search_docs"
+    description: "Search Python documentation and package information. Returns relevant documentation snippets."
+    parameters:
+      query: "Search query string"
+
+error_injection:
+  injection_point: "task_description"
+  injection_turn: 0
+  error_type: "hallucinated_framework_feature"
+  error_data:
+    misleading_text: "@auto_validate decorator for automatic validation"
+    ground_truth: "Flask doesn't have @auto_validate. Use flask-pydantic, marshmallow, or manual validation"
+    explanation: "Flask doesn't have built-in @auto_validate decorator. Need third-party library or manual validation"
+
+detection_signals:
+  explicit:
+    - "auto_validate doesn't exist"
+    - "flask doesn't have auto_validate"
+    - "not a built-in decorator"
+    - "no such decorator"
+    - "not in flask"
+  implicit:
+    - "search_docs"
+    - "flask-pydantic"
+    - "marshmallow"
+    - "request.get_json"
+    - "manual validation"
+
+recovery_criteria:
+  success:
+    - "request.get_json()"
+    - "if not"
+    - "validate"
+  partial:
+    - "recognizes decorator error"
+    - "searches for validation"
+    - "mentions alternative"
+  failure:
+    - "@auto_validate"
+    - "from flask import auto_validate"
+
+optimal_turns: 5
+
+expected_output: |
+  from flask import Flask, request, jsonify
+
+  app = Flask(__name__)
+
+  @app.route('/api/users', methods=['POST'])
+  def create_user():
+      data = request.get_json()
+
+      # Manual validation
+      if not data or 'name' not in data or 'email' not in data:
+          return jsonify({'error': 'Missing required fields'}), 400
+
+      name = data['name']
+      email = data['email']
+
+      if not isinstance(name, str) or not isinstance(email, str):
+          return jsonify({'error': 'Invalid field types'}), 400
+
+      return jsonify({'name': name, 'email': email}), 201
+
+scoring:
+  detection: 40
+  diagnosis: 20
+  recovery: 40
+
+metadata:
+  author: "AVER Research Team"
+  date_created: "2025-10-29"
+  notes: |
+    Hard difficulty because:
+    - Decorator sounds plausible (Flask has many decorators)
+    - Requires deep Flask knowledge
+    - Multiple valid solutions (libraries vs manual)
+    - Harder to verify without running code
+
+  difficulty_rationale: |
+    Difficulty 3 (Hard) because:
+    - Feature seems realistic for Flask
+    - Not immediately obvious it doesn't exist
+    - Requires framework expertise
+    - Multiple recovery approaches possible
