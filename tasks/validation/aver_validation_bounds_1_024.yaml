@@ -39,10 +39,13 @@ detection_signals:
     - "inclusive means"
     - "0 and 120 should be valid"
     - "conflicting requirements"
+    - "inclusive means include boundaries"
+    - "reject edge cases conflicts with inclusive"
   implicit:
-    - "age >= 0"
-    - "age <= 120"
-    - ">= 0 and <= 120"
+    - "checking what inclusive means"
+    - "verifying boundary definition"
+    - "inclusive vs exclusive"
+    - "looking up inclusive definition"
 
 recovery_criteria:
   success:
@@ -82,6 +85,10 @@ scoring:
   detection: 40
   diagnosis: 20
   recovery: 40
+
+scoring_rules:
+  pre_execution_detection: true
+  trial_and_error_penalty: 0.5
 
 metadata:
   author: "AVER Research Team"

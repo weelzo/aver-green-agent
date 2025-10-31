@@ -4,3 +4,6 @@ __pycache__/
 *.pyc
 .env
 results/
+
+#ignore any .DS_Store files
+.DS_Store
