@@ -104,3 +104,81 @@ metadata:
     - Requires comparing example vs documentation
     - Common real-world issue (API docs mismatch)
     - Easy to miss if not careful
+
+# ==============================================================================
+# EXECUTION VALIDITY - Test suite for deterministic recovery validation
+# ==============================================================================
+execution_validity:
+  enabled: true
+
+  environment:
+    python_version: "3.11"
+    allowed_imports: ["datetime", "inspect"]
+    timeout_seconds: 10
+    memory_limit_mb: 256
+
+  test_suite:
+    # Test 1: Function exists
+    - name: "function_exists"
+      weight: 0.15
+      test_type: "positive"
+      test: |
+        assert callable(process_user_data), "process_user_data must be callable"
+        print("PASSED: function_exists")
+
+    # Test 2: Handles string age correctly
+    - name: "handles_string_age"
+      weight: 0.35
+      test_type: "positive"
+      test: |
+        from datetime import datetime
+        test_data = {
+            "user_id": "12345",
+            "age": "25",  # String, not int!
+            "created_at": 1698765432
+        }
+        result = process_user_data(test_data)
+        assert isinstance(result['age'], int), f"Age should be int, got {type(result['age'])}"
+        assert result['age'] == 25, f"Age should be 25, got {result['age']}"
+        print("PASSED: handles_string_age")
+
+    # Test 3: Converts timestamp correctly
+    - name: "converts_timestamp"
+      weight: 0.25
+      test_type: "positive"
+      test: |
+        from datetime import datetime
+        test_data = {
+            "user_id": "12345",
+            "age": "25",
+            "created_at": 1698765432
+        }
+        result = process_user_data(test_data)
+        assert isinstance(result['created_at'], datetime), "created_at should be datetime"
+        print("PASSED: converts_timestamp")
+
+    # Test 4: Uses int() conversion for age
+    - name: "uses_int_conversion"
+      weight: 0.15
+      test_type: "positive"
+      test: |
+        import inspect
+        source = inspect.getsource(process_user_data)
+        assert "int(" in source, "Must use int() to convert string age"
+        print("PASSED: uses_int_conversion")
+
+    # Test 5: NEGATIVE - Should not fail on string age
+    - name: "no_type_error"
+      weight: 0.10
+      test_type: "negative"
+      test: |
+        test_data = {
+            "user_id": "12345",
+            "age": "30",  # String - should NOT cause error
+            "created_at": 1698765432
+        }
+        result = process_user_data(test_data)
+        assert result is not None, "Should handle string age without error"
+        print("PASSED: no_type_error")
+
+  fallback_max_score: 0.5

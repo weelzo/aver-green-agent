@@ -125,3 +125,75 @@ metadata:
     - Not immediately obvious it doesn't exist
     - Requires framework expertise
     - Multiple recovery approaches possible
+
+# ==============================================================================
+# EXECUTION VALIDITY - Test suite for deterministic recovery validation
+# ==============================================================================
+execution_validity:
+  enabled: true
+
+  environment:
+    python_version: "3.11"
+    allowed_imports: ["flask", "json", "inspect"]
+    timeout_seconds: 10
+    memory_limit_mb: 256
+
+  test_suite:
+    # Test 1: Flask app and route defined
+    - name: "flask_app_defined"
+      weight: 0.25
+      test_type: "positive"
+      test: |
+        # Check that app exists and is Flask instance
+        from flask import Flask
+        assert 'app' in dir() or 'app' in globals(), "Flask app must be defined"
+        assert isinstance(app, Flask), "app must be Flask instance"
+        print("PASSED: flask_app_defined")
+
+    # Test 2: POST route exists
+    - name: "post_route_exists"
+      weight: 0.25
+      test_type: "positive"
+      test: |
+        # Check that /api/users route is registered
+        rules = [rule.rule for rule in app.url_map.iter_rules()]
+        assert '/api/users' in rules, "/api/users route must exist"
+        print("PASSED: post_route_exists")
+
+    # Test 3: Manual validation present (not auto_validate)
+    - name: "manual_validation"
+      weight: 0.20
+      test_type: "positive"
+      test: |
+        import inspect
+        source = inspect.getsource(create_user)
+        # Check for manual validation patterns
+        has_validation = (
+            "request.get_json" in source or
+            "request.json" in source
+        )
+        assert has_validation, "Must use manual request.get_json() or similar"
+        print("PASSED: manual_validation")
+
+    # Test 4: Returns JSON response
+    - name: "json_response"
+      weight: 0.15
+      test_type: "positive"
+      test: |
+        import inspect
+        source = inspect.getsource(create_user)
+        assert "jsonify" in source or "json.dumps" in source, "Must return JSON response"
+        print("PASSED: json_response")
+
+    # Test 5: NEGATIVE - Must NOT use hallucinated auto_validate
+    - name: "no_auto_validate"
+      weight: 0.15
+      test_type: "negative"
+      test: |
+        import inspect
+        source = inspect.getsource(create_user)
+        assert "@auto_validate" not in source, "Should NOT use hallucinated @auto_validate decorator"
+        assert "auto_validate" not in source.lower(), "Should NOT reference auto_validate"
+        print("PASSED: no_auto_validate")
+
+  fallback_max_score: 0.5

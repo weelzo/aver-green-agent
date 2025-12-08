@@ -1,0 +1,26 @@
+# AVER Benchmark - A2A Protocol Test
+# Test AVER against A2A-compliant agent server
+
+[scenario]
+name = "aver_a2a_test"
+description = "Test A2A protocol integration with OpenRouter agent"
+version = "0.1.0"
+
+[config]
+tasks_dir = "tasks"
+results_dir = "results"
+use_llm_judge = false
+timeout_seconds = 120
+
+# A2A Agent running on localhost
+[[participants]]
+role = "a2a_claude_agent"
+endpoint = "http://127.0.0.1:8001"
+description = "Claude 4.5 Sonnet via A2A protocol"
+enabled = true
+
+[task_selection]
+task_id = "aver_hallucination_code_api_2_001"
+category = ""
+difficulty = 0
+num_tasks = 1

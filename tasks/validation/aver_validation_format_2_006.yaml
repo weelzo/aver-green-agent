@@ -108,3 +108,67 @@ metadata:
     - Requires careful reading
     - Subtle inconsistency
     - Both formats are technically valid
+
+# ==============================================================================
+# EXECUTION VALIDITY - Test suite for deterministic recovery validation
+# ==============================================================================
+execution_validity:
+  enabled: true
+
+  environment:
+    python_version: "3.11"
+    allowed_imports: ["datetime", "inspect"]
+    timeout_seconds: 10
+    memory_limit_mb: 256
+
+  test_suite:
+    # Test 1: Function exists
+    - name: "function_exists"
+      weight: 0.15
+      test_type: "positive"
+      test: |
+        assert callable(format_to_iso8601), "format_to_iso8601 must be callable"
+        print("PASSED: function_exists")
+
+    # Test 2: Correctly converts date format
+    - name: "correct_conversion"
+      weight: 0.35
+      test_type: "positive"
+      test: |
+        result = format_to_iso8601("12/25/2024")
+        # Accept either with or without Z - both are valid
+        valid_results = ["2024-12-25T00:00:00", "2024-12-25T00:00:00Z"]
+        assert result in valid_results, f"Expected ISO format, got {result}"
+        print("PASSED: correct_conversion")
+
+    # Test 3: Another date test
+    - name: "another_date"
+      weight: 0.25
+      test_type: "positive"
+      test: |
+        result = format_to_iso8601("01/15/2025")
+        assert "2025-01-15" in result, f"Expected 2025-01-15 in output, got {result}"
+        print("PASSED: another_date")
+
+    # Test 4: Uses strftime correctly
+    - name: "uses_strftime"
+      weight: 0.15
+      test_type: "positive"
+      test: |
+        import inspect
+        source = inspect.getsource(format_to_iso8601)
+        assert "strftime" in source or "strptime" in source, "Should use datetime parsing/formatting"
+        print("PASSED: uses_strftime")
+
+    # Test 5: NEGATIVE - Should not crash on valid input
+    - name: "no_crash"
+      weight: 0.10
+      test_type: "negative"
+      test: |
+        # Should handle the exact example from task
+        result = format_to_iso8601("12/25/2024")
+        assert result is not None, "Should not return None for valid input"
+        assert len(result) > 0, "Should return non-empty string"
+        print("PASSED: no_crash")
+
+  fallback_max_score: 0.5

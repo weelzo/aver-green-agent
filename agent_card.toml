@@ -1,0 +1,146 @@
+# AVER Green Agent - AgentBeats Registration Card
+# Agent Verification & Error Recovery Benchmark
+#
+# This file defines the agent metadata for AgentBeats platform registration
+# https://docs.agentbeats.org/
+
+[agent]
+name = "aver-benchmark"
+display_name = "AVER: Agent Verification & Error Recovery"
+version = "0.1.0"
+description = """
+The first benchmark for measuring AI agents' meta-cognitive capabilities:
+detecting, diagnosing, and recovering from errors.
+
+AVER addresses the #1 blocker for production agent deployment - reliability.
+While existing benchmarks test task completion, AVER tests what happens when
+things go wrong.
+"""
+type = "green_agent"  # Green agent = evaluator/benchmark
+protocol_version = "a2a-0.3"
+
+[metadata]
+author = "AVER Research Team"
+created_date = "2025-12-07"
+repository = "https://github.com/YOUR_USERNAME/aver-green-agent"
+documentation = "https://github.com/YOUR_USERNAME/aver-green-agent#readme"
+license = "MIT"
+competition = "AgentX AgentBeats Phase 1 - Track 2"
+
+[capabilities]
+# Communication protocol
+protocol = "a2a"
+protocol_features = ["message", "context_tracking", "streaming"]
+
+# Task domains
+task_types = ["coding", "reasoning", "tool_use"]
+primary_domain = "coding"
+languages = ["python"]
+
+# Error categories tested
+error_categories = [
+    "hallucination",      # Invented APIs, libraries, facts
+    "validation",         # Incorrect calculations, formats
+    "tool_misuse",        # Wrong tool selection/parameters
+    "context_loss",       # Forgetting constraints
+    "adversarial"         # Ambiguity, multiple errors
+]
+
+# Task statistics
+total_tasks = 48
+difficulty_levels = [1, 2, 3, 4]
+negative_control_tasks = 7
+tasks_with_execution_tests = 8
+
+[evaluation]
+# Scoring weights (must sum to 100)
+detection_weight = 40   # Did agent notice the error?
+diagnosis_weight = 20   # Did agent understand why?
+recovery_weight = 40    # Did agent fix it?
+
+# Validation features
+uses_llm_judge = false              # Competition-compliant
+uses_execution_tests = true         # Deterministic ground truth
+uses_negative_controls = true       # False positive measurement
+uses_metacognitive_validation = true # Cognitive process validation
+
+# Strict scoring
+invalid_causal_chain_penalty = 0.5  # 50% penalty
+trial_and_error_penalty = 0.5       # 50% penalty
+
+[validation_metrics]
+# Target validity metrics
+reproducibility_variance = 0.0      # 0% variance (achieved)
+false_positive_rate_target = 0.10   # <10% target
+false_negative_rate_target = 0.15   # <15% target
+
+[baselines]
+# Baseline agents for demonstration
+[[baselines.agents]]
+name = "mock_universal_agent"
+type = "mock"
+description = "Simulated agent with configurable behaviors"
+endpoint = "mock"
+
+[[baselines.agents]]
+name = "gpt4_turbo"
+type = "llm"
+description = "OpenAI GPT-4 Turbo via OpenRouter"
+endpoint = "llm:gpt-4-turbo"
+
+[[baselines.agents]]
+name = "claude_sonnet"
+type = "llm"
+description = "Anthropic Claude 3.5 Sonnet via OpenRouter"
+endpoint = "llm:claude-3.5-sonnet"
+
+[[baselines.agents]]
+name = "gemini_flash"
+type = "llm"
+description = "Google Gemini 2.0 Flash via OpenRouter"
+endpoint = "llm:gemini-2.0-flash"
+
+[docker]
+# Container specification
+image = "ghcr.io/YOUR_USERNAME/aver-benchmark:latest"
+base_image = "python:3.11-slim"
+entrypoint = ["python", "-m", "src.aver.cli"]
+default_args = ["scenarios/aver/scenario.toml"]
+
+# Resource requirements
+memory_limit = "512m"
+cpu_limit = "1.0"
+timeout_seconds = 300
+
+[endpoints]
+# HTTP server configuration (for A2A communication)
+port = 9000
+health_check_path = "/health"
+metrics_path = "/metrics"
+
+[environment]
+# Required environment variables
+required = []
+optional = [
+    "OPENROUTER_API_KEY"  # For real LLM testing
+]
+
+[files]
+# Key files in the repository
+readme = "README.md"
+dockerfile = "Dockerfile"
+scenario_config = "scenarios/aver/scenario.toml"
+tasks_directory = "tasks/"
+results_directory = "results/"
+
+[tags]
+# Searchable tags
+keywords = [
+    "benchmark",
+    "agent-evaluation",
+    "error-recovery",
+    "meta-cognition",
+    "reliability",
+    "hallucination-detection",
+    "a2a-protocol"
+]

@@ -99,3 +99,75 @@ metadata:
     - Requires thinking beyond requirements
     - Tests defensive programming habits
     - Many agents miss this
+
+# ==============================================================================
+# EXECUTION VALIDITY - Test suite for deterministic recovery validation
+# ==============================================================================
+execution_validity:
+  enabled: true
+
+  environment:
+    python_version: "3.11"
+    allowed_imports: ["functools", "inspect"]
+    timeout_seconds: 10
+    memory_limit_mb: 256
+
+  test_suite:
+    # Test 1: Function exists
+    - name: "function_exists"
+      weight: 0.10
+      test_type: "positive"
+      test: |
+        assert callable(fibonacci), "fibonacci must be callable"
+        print("PASSED: function_exists")
+
+    # Test 2: Base cases correct
+    - name: "base_cases"
+      weight: 0.20
+      test_type: "positive"
+      test: |
+        assert fibonacci(0) == 0, "fib(0) should be 0"
+        assert fibonacci(1) == 1, "fib(1) should be 1"
+        print("PASSED: base_cases")
+
+    # Test 3: Recursive case correct
+    - name: "recursive_case"
+      weight: 0.20
+      test_type: "positive"
+      test: |
+        assert fibonacci(5) == 5, "fib(5) should be 5"
+        assert fibonacci(10) == 55, "fib(10) should be 55"
+        print("PASSED: recursive_case")
+
+    # Test 4: Handles negative numbers (not specified but should!)
+    - name: "handles_negative"
+      weight: 0.35
+      test_type: "positive"
+      test: |
+        # Agent should add handling for negative numbers
+        try:
+            result = fibonacci(-1)
+            # Either raise ValueError OR return 0/None
+            valid = result is None or result == 0
+            assert valid or isinstance(result, int), "Should handle negative input"
+        except ValueError:
+            pass  # Raising ValueError is correct
+        except RecursionError:
+            assert False, "Should handle negative input, not infinite recurse"
+        print("PASSED: handles_negative")
+
+    # Test 5: NEGATIVE - Should NOT crash on negative
+    - name: "no_negative_crash"
+      weight: 0.15
+      test_type: "negative"
+      test: |
+        # Should not cause RecursionError on negative
+        try:
+            fibonacci(-1)
+        except RecursionError:
+            assert False, "Should NOT infinitely recurse on negative input"
+        except ValueError:
+            pass  # This is acceptable
+        print("PASSED: no_negative_crash")
+
+  fallback_max_score: 0.5

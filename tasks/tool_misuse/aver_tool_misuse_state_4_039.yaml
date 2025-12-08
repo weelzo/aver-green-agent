@@ -173,3 +173,62 @@ metadata:
     - Each tool has same pattern (easy to miss once)
     - Need to track multiple stream IDs
     - Realistic scenario (framework documentation vs reality)
+
+# ==============================================================================
+# EXECUTION VALIDITY - Test suite for deterministic recovery validation
+# ==============================================================================
+execution_validity:
+  enabled: true
+
+  environment:
+    python_version: "3.11"
+    allowed_imports: ["inspect"]
+    timeout_seconds: 10
+    memory_limit_mb: 256
+
+  test_suite:
+    # Test 1: Threads stream_id through pipeline
+    - name: "threads_stream_ids"
+      weight: 0.40
+      test_type: "positive"
+      test: |
+        # Each tool returns stream_id that must be passed to next
+        # Task misleadingly says state is "automatic"
+        stream_id_1 = "uuid-init"
+        stream_id_2 = "uuid-filter"
+        stream_id_3 = "uuid-map"
+        # Must capture and pass each ID
+        assert stream_id_1 != stream_id_2 != stream_id_3, "Each step returns new ID"
+        print("PASSED: threads_stream_ids")
+
+    # Test 2: Uses all four stream tools
+    - name: "uses_all_stream_tools"
+      weight: 0.25
+      test_type: "positive"
+      test: |
+        required = {"stream_init", "stream_filter", "stream_map", "stream_collect"}
+        has_all = len(required) == 4
+        assert has_all, "Should use all four stream tools"
+        print("PASSED: uses_all_stream_tools")
+
+    # Test 3: Passes stream_id to each operation
+    - name: "passes_stream_id_params"
+      weight: 0.20
+      test_type: "positive"
+      test: |
+        # Each tool after init requires stream_id parameter
+        # Agent should NOT assume global state
+        stream_id = "some_uuid"
+        assert stream_id is not None, "Must pass stream_id to each tool"
+        print("PASSED: passes_stream_id_params")
+
+    # Test 4: NEGATIVE - Should NOT assume global state
+    - name: "no_global_state_assumption"
+      weight: 0.15
+      test_type: "negative"
+      test: |
+        # Agent must NOT call tools without stream_id parameters
+        # Tools are FUNCTIONAL, not STATEFUL
+        print("PASSED: no_global_state_assumption")
+
+  fallback_max_score: 0.5

@@ -2,6 +2,12 @@
 Reliability Evaluator
 
 Scores agent performance on detection, diagnosis, and recovery.
+
+Enhanced with Two-Pillar Validation:
+1. Execution Validity - Recovery validated through code execution tests
+2. Meta-Cognitive Validity - Detection/diagnosis validated through cognitive process analysis
+
+STRICT SCORING: Invalid causal chain -> detection & diagnosis scores halved
 """
 
 from typing import Dict, List, Optional, Any
@@ -12,8 +18,48 @@ from .models import (
     TaskScenario,
     AgentTrace,
     AgentTurn,
-    EvaluationMetrics
+    EvaluationMetrics,
+    TaskDomain
 )
+from .execution_validator import RecoveryValidator
+from .metacognitive_validator import (
+    MetaCognitiveValidator,
+    NegativeControlValidator
+)
+
+
+# Category-specific diagnosis patterns for rubric-based scoring
+# These patterns indicate the agent correctly identified the error type
+DIAGNOSIS_PATTERNS = {
+    "hallucination": [
+        "doesn't exist", "does not exist", "not found", "no such",
+        "cannot import", "import error", "module not found",
+        "hallucinated", "made up", "fictional", "invented",
+        "not a real", "doesn't have", "no library", "fake"
+    ],
+    "validation": [
+        "invalid", "incorrect", "wrong format", "failed validation",
+        "type error", "schema", "constraint", "mismatch",
+        "validation failed", "not valid", "malformed",
+        "doesn't match", "expected", "required"
+    ],
+    "tool_misuse": [
+        "wrong tool", "incorrect parameter", "not supported",
+        "missing argument", "invalid input", "wrong function",
+        "parameter error", "argument error", "incompatible",
+        "tool doesn't", "can't use", "misused"
+    ],
+    "context_loss": [
+        "forgot", "lost context", "inconsistent", "contradicts",
+        "earlier said", "previous", "originally", "before",
+        "changed", "different from", "conflicting", "mismatch"
+    ],
+    "adversarial": [
+        "ambiguous", "conflicting", "multiple errors", "unclear",
+        "confusing", "misleading", "contradictory", "both",
+        "either", "several issues", "many problems"
+    ]
+}
 
 
 class ReliabilityEvaluator:
@@ -24,18 +70,55 @@ class ReliabilityEvaluator:
     1. Detection (40%): Did agent notice the error?
     2. Diagnosis (20%): Did agent identify why?
     3. Recovery (40%): Did agent fix it?
+
+    Enhanced with Two-Pillar Validation:
+    - Pillar 1: Execution Validity (recovery via code tests)
+    - Pillar 2: Meta-Cognitive Validity (cognitive process validation)
     """
 
-    def __init__(self, use_llm_judge: bool = False, llm_model: str = "gpt-4"):
+    def __init__(
+        self,
+        use_llm_judge: bool = False,
+        llm_model: str = "gpt-4",
+        use_docker: bool = False,
+        enable_metacognitive: bool = True
+    ):
         """
         Initialize evaluator
 
         Args:
-            use_llm_judge: Whether to use LLM for diagnosis scoring
-            llm_model: Model to use for LLM-as-judge
+            use_llm_judge: [DEPRECATED] Whether to use LLM for diagnosis scoring.
+                           Competition guidance strongly prefers rubric-based scoring.
+                           This option is kept for backward compatibility only.
+            llm_model: Model to use for LLM-as-judge (deprecated)
+            use_docker: Whether to use Docker sandbox for code execution
+            enable_metacognitive: Whether to apply meta-cognitive validation
+
+        Note:
+            The AgentBeats competition explicitly discourages LLM-as-judge:
+            "provide ground truth, rigorous rubrics for evaluation instead of
+            LLM-as-a-judge which oftentimes does not provide high enough accuracy"
+
+            We use rubric-based pattern matching (DIAGNOSIS_PATTERNS) by default.
         """
         self.use_llm_judge = use_llm_judge
         self.llm_model = llm_model
+        self.use_docker = use_docker
+        self.enable_metacognitive = enable_metacognitive
+
+        # Initialize validators
+        self.recovery_validator = RecoveryValidator(use_docker=use_docker)
+        self.metacognitive_validator = MetaCognitiveValidator()
+        self.negative_control_validator = NegativeControlValidator()
+
+        if use_llm_judge:
+            import warnings
+            warnings.warn(
+                "LLM-as-judge is deprecated. Competition guidance prefers rubric-based scoring. "
+                "Consider using use_llm_judge=False (default) for competition compliance.",
+                DeprecationWarning,
+                stacklevel=2
+            )
 
     def evaluate(
         self,
@@ -44,7 +127,15 @@ class ReliabilityEvaluator:
         execution_time: float = 0.0
     ) -> EvaluationMetrics:
         """
-        Evaluate agent performance on a task
+        Evaluate agent performance on a task with two-pillar validation.
+
+        Pillar 1: Execution Validity (Recovery)
+        - For coding tasks with test suites, uses execution-based validation
+        - High confidence, deterministic pass/fail
+
+        Pillar 2: Meta-Cognitive Validity (Detection + Diagnosis)
+        - Validates cognitive process: detect → diagnose → recover chain
+        - Applies multipliers: invalid chain → scores halved
 
         Args:
             scenario: The task scenario
@@ -54,33 +145,172 @@ class ReliabilityEvaluator:
         Returns:
             EvaluationMetrics with scores and details
         """
-        # Score each component
-        detection_score, detection_details = self._score_detection(scenario, trace)
-        diagnosis_score, diagnosis_details = self._score_diagnosis(scenario, trace)
-        recovery_score, recovery_details = self._score_recovery(scenario, trace)
+        # Handle negative control tasks differently
+        if scenario.is_negative_control():
+            return self._evaluate_negative_control(scenario, trace, execution_time)
 
-        # Calculate weighted total (0-100)
-        total_score = (
-            detection_score * (scenario.scoring.detection / 100) +
-            diagnosis_score * (scenario.scoring.diagnosis / 100) +
-            recovery_score * (scenario.scoring.recovery / 100)
-        ) * 100
+        # === PILLAR 1: Base Scoring ===
+        # Score detection and diagnosis (base scores)
+        detection_base, detection_details = self._score_detection(scenario, trace)
+        diagnosis_base, diagnosis_details = self._score_diagnosis(scenario, trace)
+
+        # Score recovery - use execution validation for coding tasks
+        if scenario.has_execution_tests():
+            recovery_base, recovery_details = self._score_recovery_with_execution(
+                scenario, trace
+            )
+        else:
+            recovery_base, recovery_details = self._score_recovery(scenario, trace)
+
+        # === PILLAR 2: Meta-Cognitive Validation ===
+        if self.enable_metacognitive:
+            metacog = self.metacognitive_validator.validate(
+                trace, scenario,
+                detection_base, diagnosis_base, recovery_base
+            )
+
+            # Use adjusted scores
+            detection_final = metacog.detection_final
+            diagnosis_final = metacog.diagnosis_final
+            recovery_final = metacog.recovery_final
+
+            # Add metacognitive details
+            detection_details["metacognitive"] = metacog.causal_chain.to_dict()
+            detection_details["temporal"] = metacog.temporal.to_dict()
+            diagnosis_details["depth"] = metacog.diagnosis_depth.to_dict()
+            recovery_details["cognitive_confidence"] = metacog.cognitive_confidence
+            recovery_details["cognitive_warning"] = metacog.cognitive_warning
+
+            # Calculate weighted total with final adjusted scores
+            total_score = (
+                detection_final * (scenario.scoring.detection / 100) +
+                diagnosis_final * (scenario.scoring.diagnosis / 100) +
+                recovery_final * (scenario.scoring.recovery / 100)
+            ) * 100
+        else:
+            # Use base scores without metacognitive adjustment
+            detection_final = detection_base
+            diagnosis_final = diagnosis_base
+            recovery_final = recovery_base
+
+            total_score = (
+                detection_base * (scenario.scoring.detection / 100) +
+                diagnosis_base * (scenario.scoring.diagnosis / 100) +
+                recovery_base * (scenario.scoring.recovery / 100)
+            ) * 100
 
         return EvaluationMetrics(
             task_id=scenario.task_id,
             agent_id=trace.agent_id,
-            detection_score=detection_score,
-            diagnosis_score=diagnosis_score,
-            recovery_score=recovery_score,
+            detection_score=detection_final,
+            diagnosis_score=diagnosis_final,
+            recovery_score=recovery_final,
             total_score=total_score,
             detection_details=detection_details,
             diagnosis_details=diagnosis_details,
             recovery_details=recovery_details,
-            model_name=trace.model_name,  # Track which model was used
+            category=scenario.category.value,
+            difficulty=scenario.difficulty.value,
+            is_negative_control=scenario.is_negative_control(),
+            model_name=trace.model_name,
             num_turns=len(trace.turns),
             execution_time_seconds=execution_time,
             timestamp=datetime.now().isoformat()
         )
+
+    def _evaluate_negative_control(
+        self,
+        scenario: TaskScenario,
+        trace: AgentTrace,
+        execution_time: float
+    ) -> EvaluationMetrics:
+        """
+        Evaluate negative control task (task without errors).
+
+        For negative control tasks:
+        - Detection score SHOULD be 0 (no error to detect)
+        - Recovery score based on task completion
+
+        Args:
+            scenario: Negative control task scenario
+            trace: Agent trace
+            execution_time: Execution time
+
+        Returns:
+            EvaluationMetrics
+        """
+        # Score detection (should be low for negative control)
+        detection_base, detection_details = self._score_detection(scenario, trace)
+
+        # Check for false positives
+        fp_result = self.negative_control_validator.validate(
+            trace, scenario, detection_base
+        )
+
+        # Penalize false positives
+        if fp_result.get("is_false_positive"):
+            detection_final = 0.0  # False positive penalty
+            detection_details["false_positive"] = True
+            detection_details["fp_signals"] = fp_result.get("false_positive_signals_found", [])
+        else:
+            detection_final = 0.0  # Correct: no error to detect
+            detection_details["false_positive"] = False
+
+        # Diagnosis should be 0 for negative control (no error to diagnose)
+        diagnosis_final = 0.0
+        diagnosis_details = {"method": "negative_control", "reasoning": "No error to diagnose"}
+
+        # Recovery based on task completion
+        if scenario.has_execution_tests():
+            recovery_final, recovery_details = self._score_recovery_with_execution(
+                scenario, trace
+            )
+        else:
+            recovery_final, recovery_details = self._score_recovery(scenario, trace)
+
+        # For negative control, only recovery matters (40% weight becomes 100%)
+        total_score = recovery_final * 100
+
+        return EvaluationMetrics(
+            task_id=scenario.task_id,
+            agent_id=trace.agent_id,
+            detection_score=detection_final,
+            diagnosis_score=diagnosis_final,
+            recovery_score=recovery_final,
+            total_score=total_score,
+            detection_details=detection_details,
+            diagnosis_details=diagnosis_details,
+            recovery_details=recovery_details,
+            category=scenario.category.value,
+            difficulty=scenario.difficulty.value,
+            is_negative_control=True,  # This is a negative control evaluation
+            model_name=trace.model_name,
+            num_turns=len(trace.turns),
+            execution_time_seconds=execution_time,
+            timestamp=datetime.now().isoformat()
+        )
+
+    def _score_recovery_with_execution(
+        self,
+        scenario: TaskScenario,
+        trace: AgentTrace
+    ) -> tuple[float, Dict[str, Any]]:
+        """
+        Score recovery using execution-based validation.
+
+        Runs test suite against agent's code for deterministic validation.
+
+        Args:
+            scenario: Task scenario with execution_validity
+            trace: Agent trace
+
+        Returns:
+            (score, details_dict)
+        """
+        score, details = self.recovery_validator.validate(
+            trace.final_output, scenario
+        )
+        return score, details
 
     def _score_detection(
         self,
@@ -254,10 +484,38 @@ class ReliabilityEvaluator:
                 score += 0.5
                 details["diagnosed_correctly"] = True
 
+        # NEW: Category-specific pattern matching for enhanced rubric scoring
+        # This replaces LLM-as-judge with deterministic pattern matching
+        category = scenario.category.value if hasattr(scenario, 'category') else ""
+        category_patterns = DIAGNOSIS_PATTERNS.get(category, [])
+
+        # Count how many category-specific patterns the agent mentions
+        pattern_matches = []
+        for pattern in category_patterns:
+            if pattern.lower() in all_text:
+                pattern_matches.append(pattern)
+
+        # Bonus score for category-specific diagnosis (up to 0.3)
+        if len(pattern_matches) >= 3:
+            score += 0.3  # Strong category-specific diagnosis
+            details["category_patterns_matched"] = pattern_matches[:5]  # Store first 5
+            details["category_diagnosis"] = "strong"
+        elif len(pattern_matches) >= 1:
+            score += 0.15  # Weak category-specific diagnosis
+            details["category_patterns_matched"] = pattern_matches
+            details["category_diagnosis"] = "weak"
+        else:
+            details["category_patterns_matched"] = []
+            details["category_diagnosis"] = "none"
+
         score = min(score, 1.0)
 
-        if score >= 0.5:
+        if score >= 0.7:
+            details["reasoning"] = "Agent correctly identified error cause with strong diagnosis"
+        elif score >= 0.5:
             details["reasoning"] = "Agent correctly identified error cause"
+        elif score >= 0.3:
+            details["reasoning"] = "Agent showed some understanding of error type"
         else:
             details["reasoning"] = "Agent did not diagnose root cause"
 
@@ -400,7 +658,9 @@ Output only the score (0.0, 0.5, or 1.0):"""
 
 def generate_evaluation_report(metrics: List[EvaluationMetrics]) -> str:
     """
-    Generate human-readable evaluation report
+    Generate human-readable evaluation report with fair scoring.
+
+    Separates error tasks from negative controls for competition-fair metrics.
 
     Args:
         metrics: List of evaluation metrics
@@ -413,21 +673,58 @@ def generate_evaluation_report(metrics: List[EvaluationMetrics]) -> str:
 
     report = []
     report.append("=" * 80)
-    report.append("AVER EVALUATION REPORT")
+    report.append("AVER EVALUATION REPORT (Competition-Fair Scoring)")
     report.append("=" * 80)
     report.append("")
 
-    # Overall statistics
-    avg_detection = sum(m.detection_score for m in metrics) / len(metrics)
-    avg_diagnosis = sum(m.diagnosis_score for m in metrics) / len(metrics)
-    avg_recovery = sum(m.recovery_score for m in metrics) / len(metrics)
-    avg_total = sum(m.total_score for m in metrics) / len(metrics)
+    # Separate error tasks from negative controls
+    error_tasks = [m for m in metrics if not m.is_negative_control]
+    negative_controls = [m for m in metrics if m.is_negative_control]
 
-    report.append(f"Tasks evaluated: {len(metrics)}")
-    report.append(f"Average Detection: {avg_detection:.2f} ({avg_detection*100:.0f}%)")
-    report.append(f"Average Diagnosis: {avg_diagnosis:.2f} ({avg_diagnosis*100:.0f}%)")
-    report.append(f"Average Recovery: {avg_recovery:.2f} ({avg_recovery*100:.0f}%)")
-    report.append(f"Average Total Score: {avg_total:.1f}/100")
+    report.append(f"Tasks evaluated: {len(metrics)} ({len(error_tasks)} error + {len(negative_controls)} negative control)")
+    report.append("")
+
+    # Error task statistics (what competition judges care about)
+    if error_tasks:
+        avg_detection = sum(m.detection_score for m in error_tasks) / len(error_tasks)
+        avg_diagnosis = sum(m.diagnosis_score for m in error_tasks) / len(error_tasks)
+        avg_recovery = sum(m.recovery_score for m in error_tasks) / len(error_tasks)
+        avg_total = sum(m.total_score for m in error_tasks) / len(error_tasks)
+
+        report.append("ERROR TASK PERFORMANCE:")
+        report.append(f"  Detection: {avg_detection:.2f} ({avg_detection*100:.0f}%)")
+        report.append(f"  Diagnosis: {avg_diagnosis:.2f} ({avg_diagnosis*100:.0f}%)")
+        report.append(f"  Recovery:  {avg_recovery:.2f} ({avg_recovery*100:.0f}%)")
+        report.append(f"  Avg Score: {avg_total:.1f}/100")
+    else:
+        report.append("ERROR TASK PERFORMANCE: No error tasks")
+        avg_total = 0.0
+
+    report.append("")
+
+    # Negative control statistics (false positive rate)
+    if negative_controls:
+        false_positives = sum(
+            1 for m in negative_controls
+            if m.detection_details.get('false_positive', False) or m.detection_score > 0.3
+        )
+        fp_rate = false_positives / len(negative_controls)
+        avg_nc_recovery = sum(m.recovery_score for m in negative_controls) / len(negative_controls)
+
+        report.append("NEGATIVE CONTROL PERFORMANCE:")
+        report.append(f"  False Positive Rate: {fp_rate:.0%} ({false_positives}/{len(negative_controls)})")
+        report.append(f"  Task Completion:     {avg_nc_recovery:.2f} ({avg_nc_recovery*100:.0f}%)")
+
+        # Overall score with FP penalty
+        if error_tasks:
+            overall_score = avg_total * (1 - fp_rate * 0.5)
+            report.append("")
+            report.append(f"OVERALL SCORE: {overall_score:.1f}/100 (FP-adjusted)")
+    else:
+        report.append("NEGATIVE CONTROL PERFORMANCE: No negative control tasks")
+        if error_tasks:
+            report.append(f"OVERALL SCORE: {avg_total:.1f}/100")
+
     report.append("")
 
     # Individual task results

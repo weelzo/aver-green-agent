@@ -110,3 +110,73 @@ metadata:
     - Requires maintaining context across 3 parts
     - Subtle inconsistency
     - Tests if agent validates own work
+
+# ==============================================================================
+# EXECUTION VALIDITY - Test suite for deterministic recovery validation
+# ==============================================================================
+execution_validity:
+  enabled: true
+
+  environment:
+    python_version: "3.11"
+    allowed_imports: ["inspect"]
+    timeout_seconds: 10
+    memory_limit_mb: 256
+
+  test_suite:
+    # Test 1: Function exists
+    - name: "function_exists"
+      weight: 0.10
+      test_type: "positive"
+      test: |
+        assert callable(validate_config), "validate_config must be callable"
+        print("PASSED: function_exists")
+
+    # Test 2: Port validation works
+    - name: "port_validation"
+      weight: 0.20
+      test_type: "positive"
+      test: |
+        # Valid port
+        result = validate_config({"port": 8080, "name": "test", "timeout": 30})
+        assert result[0] or "port" not in str(result), "Should accept port 8080"
+        # Invalid ports
+        result2 = validate_config({"port": 80, "name": "test", "timeout": 30})
+        assert not result2[0], "Should reject port 80 (below 1024)"
+        print("PASSED: port_validation")
+
+    # Test 3: Name validation checks alphanumeric
+    - name: "name_alphanumeric"
+      weight: 0.35
+      test_type: "positive"
+      test: |
+        # api-gateway has hyphen - should FAIL alphanumeric check
+        result = validate_config({"port": 8080, "name": "api-gateway", "timeout": 30})
+        assert not result[0], "api-gateway should FAIL (hyphen is not alphanumeric)"
+        # Valid name should pass
+        result2 = validate_config({"port": 8080, "name": "apigateway", "timeout": 30})
+        assert result2[0], "apigateway should pass (alphanumeric)"
+        print("PASSED: name_alphanumeric")
+
+    # Test 4: Uses isalnum() for name check
+    - name: "uses_isalnum"
+      weight: 0.20
+      test_type: "positive"
+      test: |
+        import inspect
+        source = inspect.getsource(validate_config)
+        assert "isalnum" in source, "Should use isalnum() for alphanumeric check"
+        print("PASSED: uses_isalnum")
+
+    # Test 5: NEGATIVE - Example should NOT pass validation
+    - name: "example_fails"
+      weight: 0.15
+      test_type: "negative"
+      test: |
+        # The example {"port": 8080, "name": "api-gateway", "timeout": 30}
+        # violates the alphanumeric-only rule (hyphen in name)
+        result = validate_config({"port": 8080, "name": "api-gateway", "timeout": 30})
+        assert not result[0], "Example should FAIL - api-gateway has hyphen"
+        print("PASSED: example_fails")
+
+  fallback_max_score: 0.5

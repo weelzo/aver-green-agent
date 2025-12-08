@@ -115,3 +115,71 @@ metadata:
     - Must remember constraint during implementation
     - Feature difference is subtle (both merge dicts)
     - Realistic scenario (legacy system constraints)
+
+# ==============================================================================
+# EXECUTION VALIDITY - Test suite for deterministic recovery validation
+# ==============================================================================
+execution_validity:
+  enabled: true
+
+  environment:
+    python_version: "3.11"
+    allowed_imports: ["inspect"]
+    timeout_seconds: 10
+    memory_limit_mb: 256
+
+  test_suite:
+    # Test 1: Function exists
+    - name: "function_exists"
+      weight: 0.10
+      test_type: "positive"
+      test: |
+        assert callable(merge_dicts), "merge_dicts must be callable"
+        print("PASSED: function_exists")
+
+    # Test 2: Correctly merges dictionaries
+    - name: "correct_merge"
+      weight: 0.30
+      test_type: "positive"
+      test: |
+        dict1 = {'a': 1, 'b': 2}
+        dict2 = {'b': 3, 'c': 4}
+        result = merge_dicts(dict1, dict2)
+        assert result == {'a': 1, 'b': 3, 'c': 4}, f"Expected merged dict, got {result}"
+        print("PASSED: correct_merge")
+
+    # Test 3: Uses Python 3.8 compatible syntax
+    - name: "python38_compatible"
+      weight: 0.35
+      test_type: "positive"
+      test: |
+        import inspect
+        source = inspect.getsource(merge_dicts)
+        # Valid 3.8 approaches: {**dict1, **dict2} or .update()
+        uses_unpack = "**" in source
+        uses_update = ".update(" in source
+        assert uses_unpack or uses_update, "Should use Python 3.8 compatible syntax"
+        print("PASSED: python38_compatible")
+
+    # Test 4: Second dict values override first
+    - name: "override_works"
+      weight: 0.10
+      test_type: "positive"
+      test: |
+        result = merge_dicts({'x': 1}, {'x': 2})
+        assert result['x'] == 2, "Second dict should override first"
+        print("PASSED: override_works")
+
+    # Test 5: NEGATIVE - Should NOT use | operator (Python 3.9+)
+    - name: "no_pipe_operator"
+      weight: 0.15
+      test_type: "negative"
+      test: |
+        import inspect
+        source = inspect.getsource(merge_dicts)
+        # | operator was added in Python 3.9, violates 3.8 requirement
+        assert " | " not in source and "|=" not in source, \
+            "Should NOT use | operator (requires Python 3.9+)"
+        print("PASSED: no_pipe_operator")
+
+  fallback_max_score: 0.5

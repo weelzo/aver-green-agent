@@ -34,35 +34,60 @@ save_results = true
 generate_report = true
 verbose = true
 
-# Purple agent to test (participant)
+# Universal mock agent for demo (enabled by default)
+[[participants]]
+role = "mock_universal_agent"
+endpoint = "mock"
+model = "mock-gpt-4"
+description = "Universal mock agent demonstrating varied behaviors"
+enabled = true
+
+# Real agent to test (disabled - enable when you have an A2A server running)
 [[participants]]
 role = "test_agent"
 endpoint = "http://127.0.0.1:8001"
-model = "gpt-4"  # Model used by purple agent
+model = "gpt-4"
 description = "Agent under test for AVER benchmark"
+enabled = false
 
-# Optional: Additional baseline agents for comparison
+# LLM agents via OpenRouter API (no A2A server required!)
+# Use "llm:<model>" format - see available models at openrouter.ai/models
 [[participants]]
-role = "baseline_gpt35"
-endpoint = "http://127.0.0.1:8002"
-model = "gpt-3.5-turbo"
-description = "GPT-3.5 baseline agent"
+role = "gpt4_turbo_agent"
+endpoint = "llm:gpt-4-turbo"
+model = "gpt-4-turbo"
+description = "Real GPT-4 Turbo via OpenRouter"
+enabled = false  # Enable to test with real LLM (costs money!)
+
+[[participants]]
+role = "claude_sonnet_agent"
+endpoint = "llm:claude-3.5-sonnet"
+model = "claude-3.5-sonnet"
+description = "Real Claude 3.5 Sonnet via OpenRouter"
 enabled = false
 
 [[participants]]
-role = "baseline_claude"
-endpoint = "http://127.0.0.1:8003"
-model = "claude-3-5-sonnet-20241022"
-description = "Claude 3.5 Sonnet baseline agent"
+role = "gemini_flash_agent"
+endpoint = "llm:gemini-2.0-flash"
+model = "gemini-2.0-flash"
+description = "Real Gemini 2.0 Flash via OpenRouter (free tier available)"
+enabled = false
+
+# Legacy: A2A protocol agents (requires running A2A server)
+[[participants]]
+role = "a2a_test_agent"
+endpoint = "http://127.0.0.1:8001"
+model = "gpt-4"
+description = "Agent via A2A protocol (requires running server)"
 enabled = false
 
 # Task filters
 [task_selection]
 # Select specific task or use filters
 task_id = ""  # Leave empty for random selection
-category = "hallucination"  # Test all hallucination tasks
-difficulty = 0  # Filter by difficulty (0 = all)
-num_tasks = 4  # Test all 4 hallucination tasks
+category = ""  # Empty = all categories
+difficulty = 0  # 0 = all difficulties
+num_tasks = 40  # Full benchmark demo
 
 # Advanced settings
 [advanced]

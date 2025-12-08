@@ -129,3 +129,64 @@ metadata:
     - Pattern looks correct at first glance
     - Test case explicitly shows the issue
     - Regex knowledge needed to fix
+
+# ==============================================================================
+# EXECUTION VALIDITY - Test suite for deterministic recovery validation
+# ==============================================================================
+execution_validity:
+  enabled: true
+
+  environment:
+    python_version: "3.11"
+    allowed_imports: ["re", "inspect"]
+    timeout_seconds: 10
+    memory_limit_mb: 256
+
+  test_suite:
+    # Test 1: Function exists
+    - name: "function_exists"
+      weight: 0.10
+      test_type: "positive"
+      test: |
+        assert callable(validate_email), "validate_email must be callable"
+        print("PASSED: function_exists")
+
+    # Test 2: Valid emails accepted
+    - name: "valid_emails"
+      weight: 0.25
+      test_type: "positive"
+      test: |
+        assert validate_email("user@example.com") == True, "user@example.com should be valid"
+        assert validate_email("test.user@domain.co.uk") == True, "test.user@domain.co.uk should be valid"
+        print("PASSED: valid_emails")
+
+    # Test 3: Invalid emails rejected
+    - name: "invalid_emails"
+      weight: 0.20
+      test_type: "positive"
+      test: |
+        assert validate_email("invalid@domain") == False, "invalid@domain should be rejected (no dot)"
+        assert validate_email("user@@domain.com") == False, "double @ should be rejected"
+        print("PASSED: invalid_emails")
+
+    # Test 4: Leading dot rejected (the key test!)
+    - name: "leading_dot_rejected"
+      weight: 0.30
+      test_type: "positive"
+      test: |
+        # This is the error in the given pattern - leading dots should be invalid
+        result = validate_email(".user@domain.com")
+        assert result == False, ".user@domain.com should be INVALID (leading dot)"
+        print("PASSED: leading_dot_rejected")
+
+    # Test 5: NEGATIVE - Should NOT use broken pattern that allows leading dots
+    - name: "no_broken_pattern"
+      weight: 0.15
+      test_type: "negative"
+      test: |
+        # The broken pattern would accept .user@domain.com
+        result = validate_email(".user@domain.com")
+        assert result == False, "Should fix pattern to reject leading dots"
+        print("PASSED: no_broken_pattern")
+
+  fallback_max_score: 0.5

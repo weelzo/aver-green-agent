@@ -116,3 +116,72 @@ metadata:
     - Easy to miss contradiction if reading sequentially
     - Tests critical thinking, not just coding
     - Multiple valid recovery approaches
+
+# ==============================================================================
+# EXECUTION VALIDITY - Test suite for deterministic recovery validation
+# ==============================================================================
+execution_validity:
+  enabled: true
+
+  environment:
+    python_version: "3.11"
+    allowed_imports: ["re", "inspect"]
+    timeout_seconds: 10
+    memory_limit_mb: 256
+
+  test_suite:
+    # Test 1: Function exists
+    - name: "function_exists"
+      weight: 0.15
+      test_type: "positive"
+      test: |
+        assert callable(validate_password), "validate_password must be callable"
+        print("PASSED: function_exists")
+
+    # Test 2: Checks basic requirements (length, upper, lower, digit)
+    - name: "basic_requirements"
+      weight: 0.30
+      test_type: "positive"
+      test: |
+        # Test length requirement (at least 12 chars)
+        assert validate_password("Short1!") == False, "Should reject short passwords"
+        # Test missing uppercase
+        assert validate_password("longpassword1!") == False, "Should require uppercase"
+        print("PASSED: basic_requirements")
+
+    # Test 3: Accepts valid password (with special chars - more common choice)
+    - name: "valid_password_accepted"
+      weight: 0.25
+      test_type: "positive"
+      test: |
+        # Valid password should be accepted (either interpretation)
+        valid = "SecurePass123!"
+        result = validate_password(valid)
+        # Should work with either interpretation
+        assert result is not None, "Should return True or False"
+        print("PASSED: valid_password_accepted")
+
+    # Test 4: Agent made a choice (doesn't crash on contradiction)
+    - name: "handles_contradiction"
+      weight: 0.20
+      test_type: "positive"
+      test: |
+        # Test that function works (agent resolved contradiction)
+        test1 = validate_password("ValidPass123!")  # Has special char
+        test2 = validate_password("ValidPass123Aa")  # No special char
+        # One of these should be True based on agent's choice
+        assert test1 is not None and test2 is not None, "Function should handle both cases"
+        print("PASSED: handles_contradiction")
+
+    # Test 5: NEGATIVE - Should not try to satisfy both impossible requirements
+    - name: "no_impossible_logic"
+      weight: 0.10
+      test_type: "negative"
+      test: |
+        # A password cannot both have NO special chars AND have special chars
+        # Function should work (not crash with impossible logic)
+        result = validate_password("ValidPass123!")
+        assert isinstance(result, bool), "Should return boolean, not crash"
+        print("PASSED: no_impossible_logic")
+
+  fallback_max_score: 0.5

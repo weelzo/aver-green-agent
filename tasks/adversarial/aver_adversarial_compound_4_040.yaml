@@ -209,3 +209,130 @@ metadata:
     - Need to make several design decisions
     - Realistic complex production scenario
     - Easy to miss issues while focusing on implementation
+
+# ==============================================================================
+# EXECUTION VALIDITY - Test suite for deterministic recovery validation
+# ==============================================================================
+execution_validity:
+  enabled: true
+
+  environment:
+    python_version: "3.11"
+    allowed_imports: ["asyncio", "collections", "time", "inspect", "statistics"]
+    timeout_seconds: 10
+    memory_limit_mb: 256
+
+  test_suite:
+    # Test 1: Custom rolling average implementation exists
+    - name: "custom_rolling_average"
+      weight: 0.30
+      test_type: "positive"
+      test: |
+        import inspect
+        # Check for custom rolling average implementation
+        # Could be a class or function with deque
+        all_source = ""
+        try:
+            all_source += inspect.getsource(RollingAverage)
+        except:
+            pass
+        try:
+            all_source += inspect.getsource(process_sensor_stream)
+        except:
+            pass
+        try:
+            all_source += inspect.getsource(main)
+        except:
+            pass
+
+        # Should use deque or custom list for rolling window
+        has_rolling = "deque" in all_source or "window" in all_source.lower()
+        has_average = "sum(" in all_source or "average" in all_source.lower() or "mean" in all_source.lower()
+        assert has_rolling and has_average, "Should implement custom rolling average with deque or window"
+        print("PASSED: custom_rolling_average")
+
+    # Test 2: NEGATIVE - Should NOT use statistics.rolling_mean
+    - name: "no_statistics_rolling_mean"
+      weight: 0.25
+      test_type: "negative"
+      test: |
+        import inspect
+        all_source = ""
+        for name in dir():
+            obj = None
+            try:
+                obj = globals().get(name)
+            except:
+                pass
+            if obj and callable(obj):
+                try:
+                    all_source += inspect.getsource(obj)
+                except:
+                    pass
+
+        assert "statistics.rolling_mean" not in all_source, "Should NOT use statistics.rolling_mean (doesn't exist)"
+        assert "rolling_mean(" not in all_source or "def rolling_mean" in all_source, "Should not call non-existent rolling_mean"
+        print("PASSED: no_statistics_rolling_mean")
+
+    # Test 3: Error handling implemented
+    - name: "error_handling"
+      weight: 0.20
+      test_type: "positive"
+      test: |
+        import inspect
+        all_source = ""
+        try:
+            all_source += inspect.getsource(process_sensor_stream)
+        except:
+            pass
+        try:
+            all_source += inspect.getsource(main)
+        except:
+            pass
+
+        # Should have try/except for error handling
+        has_error_handling = "try:" in all_source and "except" in all_source
+        has_logging = "print(" in all_source or "log" in all_source.lower()
+        assert has_error_handling, "Should have try/except error handling"
+        print("PASSED: error_handling")
+
+    # Test 4: Async patterns used correctly
+    - name: "async_patterns"
+      weight: 0.15
+      test_type: "positive"
+      test: |
+        import inspect
+        all_source = ""
+        try:
+            all_source += inspect.getsource(main)
+        except:
+            pass
+        try:
+            all_source += inspect.getsource(process_sensor_stream)
+        except:
+            pass
+
+        # Should use async/await patterns
+        has_async = "async def" in all_source or "await " in all_source
+        has_asyncio = "asyncio" in all_source
+        assert has_async, "Should use async patterns"
+        print("PASSED: async_patterns")
+
+    # Test 5: Forward fill logic for missing data
+    - name: "forward_fill_logic"
+      weight: 0.10
+      test_type: "positive"
+      test: |
+        import inspect
+        all_source = ""
+        try:
+            all_source += inspect.getsource(process_sensor_stream)
+        except:
+            pass
+
+        # Should handle missing/None values
+        handles_missing = "None" in all_source or "last_value" in all_source or "previous" in all_source.lower()
+        assert handles_missing, "Should implement forward fill for missing data"
+        print("PASSED: forward_fill_logic")
+
+  fallback_max_score: 0.5

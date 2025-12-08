@@ -108,3 +108,60 @@ metadata:
     - Contradiction is relatively obvious
     - Simple to verify with test cases
     - Clear correct interpretation (inclusive means include)
+
+# ==============================================================================
+# EXECUTION VALIDITY - Test suite for deterministic recovery validation
+# ==============================================================================
+execution_validity:
+  enabled: true
+
+  environment:
+    python_version: "3.11"
+    allowed_imports: ["inspect"]
+    timeout_seconds: 10
+    memory_limit_mb: 256
+
+  test_suite:
+    # Test 1: Function exists
+    - name: "function_exists"
+      weight: 0.15
+      test_type: "positive"
+      test: |
+        assert callable(validate_age), "validate_age must be callable"
+        print("PASSED: function_exists")
+
+    # Test 2: Boundaries are INCLUSIVE (0 and 120 should be valid)
+    - name: "inclusive_boundaries"
+      weight: 0.40
+      test_type: "positive"
+      test: |
+        # "Inclusive" means 0 and 120 should be VALID
+        assert validate_age(0) == True, "0 should be valid (inclusive)"
+        assert validate_age(120) == True, "120 should be valid (inclusive)"
+        print("PASSED: inclusive_boundaries")
+
+    # Test 3: Invalid ages rejected
+    - name: "invalid_rejected"
+      weight: 0.25
+      test_type: "positive"
+      test: |
+        assert validate_age(-1) == False, "-1 should be invalid"
+        assert validate_age(121) == False, "121 should be invalid"
+        print("PASSED: invalid_rejected")
+
+    # Test 4: NEGATIVE - Should NOT use exclusive boundaries
+    - name: "no_exclusive"
+      weight: 0.20
+      test_type: "negative"
+      test: |
+        import inspect
+        source = inspect.getsource(validate_age)
+        # Check for exclusive comparisons (> 0, < 120)
+        # Should use >= and <= for inclusive
+        result_0 = validate_age(0)
+        result_120 = validate_age(120)
+        # If using exclusive, these would be False
+        assert result_0 == True or result_120 == True, "Should use inclusive (>=, <=), not exclusive (>, <)"
+        print("PASSED: no_exclusive")
+
+  fallback_max_score: 0.5

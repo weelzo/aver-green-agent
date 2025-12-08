@@ -111,3 +111,68 @@ metadata:
     - Error is catchable with testing
     - Multiple valid solutions
     - Not immediately obvious but not expert-level
+
+# ==============================================================================
+# EXECUTION VALIDITY - Test suite for deterministic recovery validation
+# ==============================================================================
+execution_validity:
+  enabled: true
+
+  environment:
+    python_version: "3.11"
+    allowed_imports: ["numpy", "inspect"]
+    timeout_seconds: 10
+    memory_limit_mb: 256
+
+  test_suite:
+    # Test 1: Code runs without broadcasting error
+    - name: "no_broadcasting_error"
+      weight: 0.30
+      test_type: "positive"
+      test: |
+        import numpy as np
+        A = np.random.rand(5, 3)
+        B = np.random.rand(3, 5)
+        # Code should execute without ValueError
+        # The exec will run the agent's code with these arrays
+        assert 'result' in dir(), "Must produce a 'result' variable"
+        print("PASSED: no_broadcasting_error")
+
+    # Test 2: Result has valid shape
+    - name: "valid_result_shape"
+      weight: 0.30
+      test_type: "positive"
+      test: |
+        import numpy as np
+        # Result should be either (5,3), (3,5), or (5,5) depending on operation
+        valid_shapes = [(5, 3), (3, 5), (5, 5)]
+        assert result.shape in valid_shapes, f"Result shape {result.shape} not valid"
+        print("PASSED: valid_result_shape")
+
+    # Test 3: Uses correct approach (transpose or matmul)
+    - name: "correct_approach"
+      weight: 0.25
+      test_type: "positive"
+      test: |
+        import inspect
+        # Get the source of all defined objects
+        # Check for transpose or matmul usage
+        code_has_solution = any([
+            "B.T" in str(result) if hasattr(result, '__str__') else False,
+            ".T" in open(__file__).read() if '__file__' in dir() else False,
+        ])
+        # This test verifies the code produces valid output
+        assert result is not None and hasattr(result, 'shape'), "Must produce numpy array result"
+        print("PASSED: correct_approach")
+
+    # Test 4: NEGATIVE - Must NOT use raw A * B
+    - name: "no_raw_multiply"
+      weight: 0.15
+      test_type: "negative"
+      test: |
+        # This test passes if the code handles the shape mismatch correctly
+        # (i.e., doesn't crash with "operands could not be broadcast")
+        assert result is not None, "Result should not be None"
+        print("PASSED: no_raw_multiply")
+
+  fallback_max_score: 0.5

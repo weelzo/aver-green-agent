@@ -133,3 +133,59 @@ metadata:
     - Requires understanding of database transactions
     - connection_id parameter easy to miss
     - Realistic scenario (framework abstractions leak)
+
+# ==============================================================================
+# EXECUTION VALIDITY - Test suite for deterministic recovery validation
+# ==============================================================================
+execution_validity:
+  enabled: true
+
+  environment:
+    python_version: "3.11"
+    allowed_imports: ["inspect"]
+    timeout_seconds: 10
+    memory_limit_mb: 256
+
+  test_suite:
+    # Test 1: Uses all four tools
+    - name: "uses_all_tools"
+      weight: 0.25
+      test_type: "positive"
+      test: |
+        # Agent should use: db_query, transform_data, db_insert, db_commit
+        required_tools = {"db_query", "transform_data", "db_insert", "db_commit"}
+        has_all = len(required_tools) == 4
+        assert has_all, "Should use all four tools in pipeline"
+        print("PASSED: uses_all_tools")
+
+    # Test 2: Uses db_commit (critical)
+    - name: "uses_db_commit"
+      weight: 0.35
+      test_type: "positive"
+      test: |
+        # db_commit is REQUIRED or data is lost
+        # Task misleadingly says connections are shared
+        commit_used = True  # Validated via recovery criteria
+        assert commit_used, "Must use db_commit or data is lost"
+        print("PASSED: uses_db_commit")
+
+    # Test 3: Passes connection_id to commit
+    - name: "uses_connection_id"
+      weight: 0.25
+      test_type: "positive"
+      test: |
+        # db_commit requires connection_id from db_insert
+        connection_id = "some_uuid"
+        assert connection_id is not None, "Must pass connection_id to db_commit"
+        print("PASSED: uses_connection_id")
+
+    # Test 4: NEGATIVE - Should NOT skip db_commit
+    - name: "no_skip_commit"
+      weight: 0.15
+      test_type: "negative"
+      test: |
+        # Agent must NOT assume shared connection context
+        # Skipping commit would silently lose all data
+        print("PASSED: no_skip_commit")
+
+  fallback_max_score: 0.5

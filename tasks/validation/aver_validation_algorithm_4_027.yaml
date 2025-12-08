@@ -139,3 +139,68 @@ metadata:
     - Complexity analysis not immediately obvious
     - Need to know better alternative exists
     - Realistic scenario (incorrect architecture decisions)
+
+# ==============================================================================
+# EXECUTION VALIDITY - Test suite for deterministic recovery validation
+# ==============================================================================
+execution_validity:
+  enabled: true
+
+  environment:
+    python_version: "3.11"
+    allowed_imports: ["inspect", "time"]
+    timeout_seconds: 10
+    memory_limit_mb: 256
+
+  test_suite:
+    # Test 1: Function exists
+    - name: "function_exists"
+      weight: 0.10
+      test_type: "positive"
+      test: |
+        assert callable(find_duplicates), "find_duplicates must be callable"
+        print("PASSED: function_exists")
+
+    # Test 2: Correct output
+    - name: "correct_output"
+      weight: 0.30
+      test_type: "positive"
+      test: |
+        result = find_duplicates([1, 2, 3, 2, 4, 3, 5])
+        assert set(result) == {2, 3}, f"Expected [2, 3], got {result}"
+        print("PASSED: correct_output")
+
+    # Test 3: Handles empty and no duplicates
+    - name: "edge_cases"
+      weight: 0.15
+      test_type: "positive"
+      test: |
+        assert find_duplicates([]) == [], "Empty array should return []"
+        assert find_duplicates([1, 2, 3]) == [], "No duplicates should return []"
+        print("PASSED: edge_cases")
+
+    # Test 4: Uses set-based O(n) approach (not nested loops)
+    - name: "uses_set_approach"
+      weight: 0.30
+      test_type: "positive"
+      test: |
+        import inspect
+        source = inspect.getsource(find_duplicates)
+        # Should use set for O(n) solution
+        assert "set(" in source or "set()" in source, "Should use set for O(n) solution"
+        print("PASSED: uses_set_approach")
+
+    # Test 5: NEGATIVE - Should NOT use nested loops (O(n²))
+    - name: "no_nested_loops"
+      weight: 0.15
+      test_type: "negative"
+      test: |
+        import inspect
+        source = inspect.getsource(find_duplicates)
+        # Nested loops pattern: for i... for j...
+        nested_pattern = ("for i" in source and "for j" in source) or \
+                        ("range(len" in source.lower() and source.count("for") >= 2)
+        assert not nested_pattern, "Should NOT use nested loops (O(n²) - wrong complexity claim)"
+        print("PASSED: no_nested_loops")
+
+  fallback_max_score: 0.5

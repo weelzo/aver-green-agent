@@ -165,3 +165,81 @@ metadata:
     - At high scale the issue is severe
     - Need to know Redis-specific commands (INCR)
     - Must reason about concurrent execution
+
+# ==============================================================================
+# EXECUTION VALIDITY - Test suite for deterministic recovery validation
+# ==============================================================================
+execution_validity:
+  enabled: true
+
+  environment:
+    python_version: "3.11"
+    allowed_imports: ["inspect", "re"]
+    timeout_seconds: 10
+    memory_limit_mb: 256
+
+  test_suite:
+    # Test 1: Correct increment function exists
+    - name: "function_exists"
+      weight: 0.10
+      test_type: "positive"
+      test: |
+        # Should have a correct implementation
+        has_correct = 'increment_counter_CORRECT' in dir() or 'increment_counter' in dir()
+        assert has_correct, "increment_counter_CORRECT or increment_counter must be defined"
+        print("PASSED: function_exists")
+
+    # Test 2: Uses atomic INCR command
+    - name: "uses_incr"
+      weight: 0.40
+      test_type: "positive"
+      test: |
+        import inspect
+        # Get source of correct function
+        if 'increment_counter_CORRECT' in dir():
+            source = inspect.getsource(increment_counter_CORRECT)
+        elif 'increment_counter' in dir():
+            source = inspect.getsource(increment_counter)
+        else:
+            source = ""
+        # Should use INCR or incr for atomic operation
+        assert "incr(" in source.lower() or ".incr(" in source.lower(), \
+            "Should use Redis INCR command for atomic increment"
+        print("PASSED: uses_incr")
+
+    # Test 3: Identifies race condition (in comments or WRONG function name)
+    - name: "identifies_race_condition"
+      weight: 0.30
+      test_type: "positive"
+      test: |
+        import inspect
+        # Get all available source code
+        all_source = ""
+        if 'increment_counter_CORRECT' in dir():
+            all_source += inspect.getsource(increment_counter_CORRECT)
+        if 'increment_counter_WRONG' in dir():
+            all_source += inspect.getsource(increment_counter_WRONG)
+        if 'increment_counter' in dir():
+            all_source += inspect.getsource(increment_counter)
+        # Should mention race condition or mark wrong approach
+        race_terms = ["race", "atomic", "WRONG", "lost update", "concurrent"]
+        found = any(term.lower() in all_source.lower() for term in race_terms)
+        assert found or 'increment_counter_WRONG' in dir(), \
+            "Should identify the race condition in the GET/SET approach"
+        print("PASSED: identifies_race_condition")
+
+    # Test 4: NEGATIVE - Should NOT implement naive GET/SET as correct solution
+    - name: "no_naive_implementation"
+      weight: 0.20
+      test_type: "negative"
+      test: |
+        import inspect
+        # Check if CORRECT function uses naive get+set pattern
+        if 'increment_counter_CORRECT' in dir():
+            source = inspect.getsource(increment_counter_CORRECT)
+            # Naive pattern: get() followed by set()
+            has_naive = ".get(" in source and ".set(" in source and ".incr(" not in source.lower()
+            assert not has_naive, "CORRECT function should use INCR, not GET+SET pattern"
+        print("PASSED: no_naive_implementation")
+
+  fallback_max_score: 0.5

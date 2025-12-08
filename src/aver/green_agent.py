@@ -402,13 +402,27 @@ class AVERGreenAgent:
 
 class MockPurpleAgent:
     """
-    Mock purple agent for testing AVER infrastructure
+    DEPRECATED: Use UniversalMockPurpleAgent from mock_agent.py instead.
 
-    This is a simple agent that demonstrates expected behavior patterns.
-    Used for development and testing before integrating real agents.
+    This legacy class only handles ONE specific task (YAML parsing).
+    The new UniversalMockPurpleAgent handles ALL 40 AVER tasks with
+    configurable behavior profiles (expert/competent/novice/failing).
+
+    Migration:
+        from aver.mock_agent import UniversalMockPurpleAgent, MockAgentConfig
+        config = MockAgentConfig(agent_id="my_agent")
+        agent = UniversalMockPurpleAgent(config)
+        trace = await agent.execute_task(task_scenario)  # Pass TaskScenario, not dict
     """
 
     def __init__(self, agent_id: str = "mock_agent"):
+        import warnings
+        warnings.warn(
+            "MockPurpleAgent is deprecated. Use UniversalMockPurpleAgent from mock_agent.py instead. "
+            "See docstring for migration guide.",
+            DeprecationWarning,
+            stacklevel=2
+        )
         self.agent_id = agent_id
 
     async def execute_task(self, task: Dict[str, Any]) -> AgentTrace:

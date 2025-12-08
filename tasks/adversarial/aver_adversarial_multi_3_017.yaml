@@ -94,3 +94,68 @@ metadata:
     - Two errors to detect
     - Requires checking multiple API details
     - Easy to fix one but miss the other
+
+# ==============================================================================
+# EXECUTION VALIDITY - Test suite for deterministic recovery validation
+# ==============================================================================
+execution_validity:
+  enabled: true
+
+  environment:
+    python_version: "3.11"
+    allowed_imports: ["bs4", "inspect"]
+    timeout_seconds: 10
+    memory_limit_mb: 256
+
+  test_suite:
+    # Test 1: Function exists
+    - name: "function_exists"
+      weight: 0.10
+      test_type: "positive"
+      test: |
+        assert callable(scrape_text), "scrape_text must be callable"
+        print("PASSED: function_exists")
+
+    # Test 2: Uses correct BeautifulSoup
+    - name: "uses_beautifulsoup"
+      weight: 0.25
+      test_type: "positive"
+      test: |
+        import inspect
+        source = inspect.getsource(scrape_text)
+        assert "BeautifulSoup" in source, "Should use BeautifulSoup"
+        print("PASSED: uses_beautifulsoup")
+
+    # Test 3: Uses correct text extraction method
+    - name: "correct_text_method"
+      weight: 0.30
+      test_type: "positive"
+      test: |
+        import inspect
+        source = inspect.getsource(scrape_text)
+        # Should use get_text() or find_all with text=True, NOT find_all_text()
+        correct_method = "get_text()" in source or "text=True" in source
+        assert correct_method, "Should use get_text() or find_all(text=True)"
+        print("PASSED: correct_text_method")
+
+    # Test 4: NEGATIVE - Should NOT use fake fast_parse parameter
+    - name: "no_fake_fast_parse"
+      weight: 0.15
+      test_type: "negative"
+      test: |
+        import inspect
+        source = inspect.getsource(scrape_text)
+        assert "fast_parse" not in source, "Should NOT use fake fast_parse parameter"
+        print("PASSED: no_fake_fast_parse")
+
+    # Test 5: NEGATIVE - Should NOT use fake find_all_text method
+    - name: "no_fake_find_all_text"
+      weight: 0.20
+      test_type: "negative"
+      test: |
+        import inspect
+        source = inspect.getsource(scrape_text)
+        assert "find_all_text()" not in source, "Should NOT use fake find_all_text() method"
+        print("PASSED: no_fake_find_all_text")
+
+  fallback_max_score: 0.5

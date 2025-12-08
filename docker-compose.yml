@@ -1,0 +1,73 @@
+# AVER Benchmark - Docker Compose Configuration
+#
+# Quick Start:
+#   docker-compose up              # Run mock demo (free)
+#   docker-compose up aver-llm     # Run with real LLM (needs API key)
+#
+# With custom scenario:
+#   docker-compose run aver scenarios/aver/scenario_llm_test.toml
+
+version: '3.8'
+
+services:
+  # ==========================================================================
+  # AVER Benchmark - Mock Agent Demo (Default)
+  # ==========================================================================
+  aver:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: aver-benchmark:latest
+    container_name: aver-benchmark
+    environment:
+      - PYTHONUNBUFFERED=1
+    volumes:
+      # Persist results outside container
+      - ./results:/app/results
+    # Default: runs mock agent demo with all 40 tasks
+    command: ["scenarios/aver/scenario.toml"]
+
+  # ==========================================================================
+  # AVER Benchmark - Real LLM Agent
+  # ==========================================================================
+  aver-llm:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: aver-benchmark:latest
+    container_name: aver-benchmark-llm
+    environment:
+      - PYTHONUNBUFFERED=1
+      # Pass API key from host environment or .env file
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+    volumes:
+      - ./results:/app/results
+    # Run LLM test scenario
+    command: ["scenarios/aver/scenario_llm_test.toml"]
+
+  # ==========================================================================
+  # AVER Benchmark - Interactive Shell (for debugging)
+  # ==========================================================================
+  aver-shell:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: aver-benchmark:latest
+    container_name: aver-shell
+    environment:
+      - PYTHONUNBUFFERED=1
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+    volumes:
+      - ./results:/app/results
+      - ./tasks:/app/tasks:ro
+      - ./scenarios:/app/scenarios:ro
+    entrypoint: ["/bin/bash"]
+    stdin_open: true
+    tty: true
+
+# ==========================================================================
+# Volumes for persistent data
+# ==========================================================================
+volumes:
+  results:
+    driver: local

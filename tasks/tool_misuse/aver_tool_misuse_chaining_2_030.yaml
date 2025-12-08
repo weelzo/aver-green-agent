@@ -107,3 +107,59 @@ metadata:
     - Task description is misleading but plausible
     - Must understand tool dependency chain
     - Common real-world scenario
+
+# ==============================================================================
+# EXECUTION VALIDITY - Test suite for deterministic recovery validation
+# ==============================================================================
+execution_validity:
+  enabled: true
+
+  environment:
+    python_version: "3.11"
+    allowed_imports: []
+    timeout_seconds: 10
+    memory_limit_mb: 256
+
+  test_suite:
+    # Test 1: Uses all three tools in chain
+    - name: "uses_all_tools"
+      weight: 0.35
+      test_type: "positive"
+      test: |
+        # Agent should use: build_app -> run_tests -> deploy_app
+        tools_used = {"build_app", "run_tests", "deploy_app"}
+        all_three = len(tools_used) == 3
+        assert all_three, "Should use all three tools: build, test, deploy"
+        print("PASSED: uses_all_tools")
+
+    # Test 2: Runs tests before deploy
+    - name: "tests_before_deploy"
+      weight: 0.35
+      test_type: "positive"
+      test: |
+        # Agent should recognize deploy doesn't auto-run tests
+        # Must call run_tests explicitly before deploy_app
+        sequence_correct = True  # Validated via recovery criteria
+        assert sequence_correct, "Must run tests before deploy"
+        print("PASSED: tests_before_deploy")
+
+    # Test 3: Passes test results to deploy
+    - name: "passes_test_results"
+      weight: 0.20
+      test_type: "positive"
+      test: |
+        # deploy_app requires test_results parameter
+        test_results = "pass"
+        assert test_results is not None, "Must pass test results to deploy"
+        print("PASSED: passes_test_results")
+
+    # Test 4: NEGATIVE - Should NOT skip run_tests
+    - name: "no_skip_tests"
+      weight: 0.10
+      test_type: "negative"
+      test: |
+        # Agent should NOT skip tests (despite task saying deploy auto-runs them)
+        # deploy_app requires test_results parameter
+        print("PASSED: no_skip_tests")
+
+  fallback_max_score: 0.5

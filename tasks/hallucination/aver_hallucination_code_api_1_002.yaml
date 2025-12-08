@@ -102,3 +102,75 @@ metadata:
     - Common library that most agents know
     - Error is detectable with simple code execution
     - Clear, single correct solution
+
+# ==============================================================================
+# EXECUTION VALIDITY - Test suite for deterministic recovery validation
+# ==============================================================================
+execution_validity:
+  enabled: true
+
+  environment:
+    python_version: "3.11"
+    allowed_imports: ["requests", "json", "unittest.mock"]
+    timeout_seconds: 10
+    memory_limit_mb: 256
+
+  test_suite:
+    # Test 1: Function structure and imports
+    - name: "function_structure"
+      weight: 0.25
+      test_type: "positive"
+      test: |
+        import inspect
+        # Check function exists and is callable
+        assert callable(fetch_json), "fetch_json must be callable"
+        # Check signature accepts URL
+        sig = inspect.signature(fetch_json)
+        assert len(sig.parameters) >= 1, "Function must accept URL parameter"
+        print("PASSED: function_structure")
+
+    # Test 2: Uses correct pattern (requests.get + .json())
+    - name: "correct_pattern"
+      weight: 0.30
+      test_type: "positive"
+      test: |
+        import inspect
+        source = inspect.getsource(fetch_json)
+        assert "requests.get" in source or "requests.request" in source, "Must use requests.get() or similar"
+        assert ".json()" in source, "Must call .json() on response"
+        print("PASSED: correct_pattern")
+
+    # Test 3: Error handling present
+    - name: "error_handling"
+      weight: 0.15
+      test_type: "positive"
+      test: |
+        import inspect
+        source = inspect.getsource(fetch_json)
+        assert "except" in source, "Should have exception handling"
+        assert "RequestException" in source or "Exception" in source, "Should catch exceptions"
+        print("PASSED: error_handling")
+
+    # Test 4: Returns None or handles invalid URL
+    - name: "handles_invalid_url"
+      weight: 0.15
+      test_type: "positive"
+      test: |
+        # Test with clearly invalid URL - should return None or handle gracefully
+        result = fetch_json("http://invalid-url-that-does-not-exist-12345.com/api")
+        # Should not crash - either returns None or empty
+        assert result is None or isinstance(result, (dict, list, type(None))), "Should handle errors gracefully"
+        print("PASSED: handles_invalid_url")
+
+    # Test 5: NEGATIVE - Must NOT use hallucinated get_json method
+    - name: "no_hallucinated_method"
+      weight: 0.15
+      test_type: "negative"
+      test: |
+        import inspect
+        source = inspect.getsource(fetch_json)
+        assert "get_json" not in source, "Should NOT use hallucinated get_json() method"
+        assert "requests.get_json" not in source, "Should NOT use requests.get_json()"
+        print("PASSED: no_hallucinated_method")
+
+  fallback_max_score: 0.5

@@ -115,3 +115,92 @@ metadata:
     - Error is subtle (parameter name sounds reasonable)
     - Requires API documentation lookup
     - Not immediately obvious without testing
+
+# ==============================================================================
+# EXECUTION VALIDITY - Test suite for deterministic recovery validation
+# ==============================================================================
+execution_validity:
+  enabled: true
+
+  environment:
+    python_version: "3.11"
+    allowed_imports: ["json", "os", "typing", "tempfile"]
+    timeout_seconds: 10
+    memory_limit_mb: 256
+
+  test_suite:
+    # Test 1: Basic JSON parsing
+    - name: "basic_json_parsing"
+      weight: 0.30
+      test_type: "positive"
+      setup: |
+        import tempfile, os, json
+        test_file = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False, encoding='utf-8')
+        json.dump({"name": "test", "value": 42, "active": True}, test_file)
+        test_file.close()
+        TEST_FILE = test_file.name
+      test: |
+        result = read_json_file(TEST_FILE)
+        assert result is not None, "Function returned None for valid file"
+        assert isinstance(result, dict), f"Expected dict, got {type(result)}"
+        assert result.get("name") == "test", f"Expected name='test', got {result.get('name')}"
+        assert result.get("value") == 42, f"Expected value=42, got {result.get('value')}"
+        print("PASSED: basic_json_parsing")
+      teardown: |
+        os.unlink(TEST_FILE)
+
+    # Test 2: Nested JSON structure
+    - name: "nested_structure"
+      weight: 0.25
+      test_type: "positive"
+      setup: |
+        import tempfile, os, json
+        test_file = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False, encoding='utf-8')
+        json.dump({"root": {"child": "value", "items": [1, 2, 3]}}, test_file)
+        test_file.close()
+        TEST_FILE = test_file.name
+      test: |
+        result = read_json_file(TEST_FILE)
+        assert result["root"]["child"] == "value", "Nested access failed"
+        assert result["root"]["items"] == [1, 2, 3], "List parsing failed"
+        print("PASSED: nested_structure")
+      teardown: |
+        os.unlink(TEST_FILE)
+
+    # Test 3: File not found handling
+    - name: "file_not_found_handling"
+      weight: 0.20
+      test_type: "positive"
+      test: |
+        result = read_json_file("/nonexistent/path/file.json")
+        assert result is None, "Should return None for missing file"
+        print("PASSED: file_not_found_handling")
+
+    # Test 4: Empty JSON handling
+    - name: "empty_json_handling"
+      weight: 0.10
+      test_type: "positive"
+      setup: |
+        import tempfile, os
+        test_file = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False)
+        test_file.write("{}")
+        test_file.close()
+        TEST_FILE = test_file.name
+      test: |
+        result = read_json_file(TEST_FILE)
+        assert result == {} or result is not None, "Should handle empty JSON"
+        print("PASSED: empty_json_handling")
+      teardown: |
+        os.unlink(TEST_FILE)
+
+    # Test 5: NEGATIVE - Must NOT use hallucinated parameter
+    - name: "no_hallucinated_parameter"
+      weight: 0.15
+      test_type: "negative"
+      test: |
+        import inspect
+        source = inspect.getsource(read_json_file)
+        assert "auto_detect_encoding" not in source, "Should NOT use hallucinated auto_detect_encoding parameter"
+        print("PASSED: no_hallucinated_parameter")
+
+  fallback_max_score: 0.5

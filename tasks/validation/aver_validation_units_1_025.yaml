@@ -116,3 +116,60 @@ metadata:
     - Unit error is obvious (Mbps = per second)
     - Result is clearly wrong (75 MB for 2 hours of video)
     - Easy to verify with calculation
+
+# ==============================================================================
+# EXECUTION VALIDITY - Test suite for deterministic recovery validation
+# ==============================================================================
+execution_validity:
+  enabled: true
+
+  environment:
+    python_version: "3.11"
+    allowed_imports: ["math", "inspect"]
+    timeout_seconds: 10
+    memory_limit_mb: 256
+
+  test_suite:
+    # Test 1: Function exists
+    - name: "function_exists"
+      weight: 0.15
+      test_type: "positive"
+      test: |
+        assert callable(calculate_file_size), "calculate_file_size must be callable"
+        print("PASSED: function_exists")
+
+    # Test 2: Correct calculation with unit conversion
+    - name: "correct_calculation"
+      weight: 0.45
+      test_type: "positive"
+      test: |
+        # 120 minutes at 5 Mbps:
+        # = 120 * 60 seconds * 5 megabits = 36000 megabits
+        # = 36000 / 8 = 4500 MB
+        result = calculate_file_size(120, 5)
+        expected = 4500
+        assert abs(result - expected) < 1, f"Expected ~4500 MB, got {result}"
+        print("PASSED: correct_calculation")
+
+    # Test 3: Works with other inputs
+    - name: "other_inputs"
+      weight: 0.20
+      test_type: "positive"
+      test: |
+        # 60 minutes at 10 Mbps = 4500 MB
+        result = calculate_file_size(60, 10)
+        expected = 4500
+        assert abs(result - expected) < 1, f"Expected ~4500 MB, got {result}"
+        print("PASSED: other_inputs")
+
+    # Test 4: NEGATIVE - Should NOT return wrong answer (75 MB)
+    - name: "no_wrong_answer"
+      weight: 0.20
+      test_type: "negative"
+      test: |
+        result = calculate_file_size(120, 5)
+        wrong_answer = 75
+        assert abs(result - wrong_answer) > 100, f"Should NOT return ~75 MB (wrong unit conversion)"
+        print("PASSED: no_wrong_answer")
+
+  fallback_max_score: 0.5

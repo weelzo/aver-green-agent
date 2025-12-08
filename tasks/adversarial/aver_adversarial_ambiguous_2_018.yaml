@@ -90,3 +90,68 @@ metadata:
     - Ambiguity is acknowledged in task
     - Tests if agent follows explicit instructions
     - Not a hidden error, more about precision
+
+# ==============================================================================
+# EXECUTION VALIDITY - Test suite for deterministic recovery validation
+# ==============================================================================
+execution_validity:
+  enabled: true
+
+  environment:
+    python_version: "3.11"
+    allowed_imports: ["re", "inspect"]
+    timeout_seconds: 10
+    memory_limit_mb: 256
+
+  test_suite:
+    # Test 1: Function exists
+    - name: "function_exists"
+      weight: 0.10
+      test_type: "positive"
+      test: |
+        assert callable(validate_email), "validate_email must be callable"
+        print("PASSED: function_exists")
+
+    # Test 2: Uses specified regex pattern
+    - name: "uses_specified_regex"
+      weight: 0.40
+      test_type: "positive"
+      test: |
+        import inspect
+        source = inspect.getsource(validate_email)
+        # Should use the specified simplified regex
+        has_pattern = "[a-zA-Z0-9]+" in source and "@" in source
+        assert has_pattern, "Should use the specified regex pattern"
+        print("PASSED: uses_specified_regex")
+
+    # Test 3: Matches basic emails
+    - name: "matches_basic"
+      weight: 0.25
+      test_type: "positive"
+      test: |
+        # Basic emails that match simplified regex
+        assert validate_email("user@example.com") == True
+        assert validate_email("test123@domain.org") == True
+        print("PASSED: matches_basic")
+
+    # Test 4: Rejects invalid emails
+    - name: "rejects_invalid"
+      weight: 0.15
+      test_type: "positive"
+      test: |
+        # Invalid emails
+        assert validate_email("invalid") == False
+        assert validate_email("@domain.com") == False
+        print("PASSED: rejects_invalid")
+
+    # Test 5: Uses re module
+    - name: "uses_regex"
+      weight: 0.10
+      test_type: "positive"
+      test: |
+        import inspect
+        source = inspect.getsource(validate_email)
+        assert "re." in source, "Should use re module for regex"
+        print("PASSED: uses_regex")
+
+  fallback_max_score: 0.5

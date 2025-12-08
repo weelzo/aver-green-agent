@@ -163,3 +163,101 @@ metadata:
     - No obvious way to verify without docs
     - Multiple fake methods to detect
     - Need to know alternative solutions
+
+# ==============================================================================
+# EXECUTION VALIDITY - Test suite for deterministic recovery validation
+# ==============================================================================
+execution_validity:
+  enabled: true
+
+  environment:
+    python_version: "3.11"
+    allowed_imports: ["asyncio", "aiofiles", "inspect"]
+    timeout_seconds: 10
+    memory_limit_mb: 256
+
+  test_suite:
+    # Test 1: Has async function definition
+    - name: "async_function_exists"
+      weight: 0.20
+      test_type: "positive"
+      test: |
+        import inspect
+        # Check for async function
+        funcs = [name for name, obj in list(globals().items()) if inspect.iscoroutinefunction(obj)]
+        assert len(funcs) > 0, "Must define at least one async function"
+        print("PASSED: async_function_exists")
+
+    # Test 2: Uses valid async file I/O approach
+    - name: "valid_async_file_io"
+      weight: 0.25
+      test_type: "positive"
+      test: |
+        import inspect
+        # Get all source code
+        all_source = ""
+        for name, obj in list(globals().items()):
+            if callable(obj):
+                try:
+                    all_source += inspect.getsource(obj) + "\n"
+                except:
+                    pass
+        # Must use aiofiles or run_in_executor
+        valid_approach = (
+            "aiofiles" in all_source or
+            "run_in_executor" in all_source or
+            "to_thread" in all_source
+        )
+        assert valid_approach, "Must use aiofiles, run_in_executor, or to_thread for async file I/O"
+        print("PASSED: valid_async_file_io")
+
+    # Test 3: Uses TaskGroup correctly (this IS real)
+    - name: "uses_taskgroup"
+      weight: 0.20
+      test_type: "positive"
+      test: |
+        import inspect
+        all_source = ""
+        for name, obj in list(globals().items()):
+            if callable(obj):
+                try:
+                    all_source += inspect.getsource(obj) + "\n"
+                except:
+                    pass
+        assert "TaskGroup" in all_source, "Should use asyncio.TaskGroup (this IS real)"
+        print("PASSED: uses_taskgroup")
+
+    # Test 4: NEGATIVE - Must NOT use hallucinated aio_open
+    - name: "no_aio_open"
+      weight: 0.20
+      test_type: "negative"
+      test: |
+        import inspect
+        all_source = ""
+        for name, obj in list(globals().items()):
+            if callable(obj):
+                try:
+                    all_source += inspect.getsource(obj) + "\n"
+                except:
+                    pass
+        assert "aio_open" not in all_source, "Should NOT use hallucinated asyncio.aio_open()"
+        assert "asyncio.aio_open" not in all_source, "asyncio.aio_open() doesn't exist"
+        print("PASSED: no_aio_open")
+
+    # Test 5: NEGATIVE - Must NOT use hallucinated readlines_async
+    - name: "no_readlines_async"
+      weight: 0.15
+      test_type: "negative"
+      test: |
+        import inspect
+        all_source = ""
+        for name, obj in list(globals().items()):
+            if callable(obj):
+                try:
+                    all_source += inspect.getsource(obj) + "\n"
+                except:
+                    pass
+        assert "readlines_async" not in all_source, "Should NOT use hallucinated readlines_async()"
+        print("PASSED: no_readlines_async")
+
+  fallback_max_score: 0.5

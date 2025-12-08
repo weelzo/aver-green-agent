@@ -139,3 +139,75 @@ metadata:
     - Errors are in different parts (library, data, date)
     - Easy to fix one and miss others
     - Realistic scenario (multiple small bugs)
+
+# ==============================================================================
+# EXECUTION VALIDITY - Test suite for deterministic recovery validation
+# ==============================================================================
+execution_validity:
+  enabled: true
+
+  environment:
+    python_version: "3.11"
+    allowed_imports: ["csv", "datetime", "inspect"]
+    timeout_seconds: 10
+    memory_limit_mb: 256
+
+  test_suite:
+    # Test 1: Function exists
+    - name: "function_exists"
+      weight: 0.10
+      test_type: "positive"
+      test: |
+        assert callable(process_csv), "process_csv must be callable"
+        print("PASSED: function_exists")
+
+    # Test 2: Uses correct csv module (not csvreader)
+    - name: "uses_csv_module"
+      weight: 0.25
+      test_type: "positive"
+      test: |
+        import inspect
+        source = inspect.getsource(process_csv)
+        # Should use standard csv module
+        has_csv = "csv.DictReader" in source or "csv.reader" in source
+        assert has_csv, "Should use csv.DictReader or csv.reader"
+        print("PASSED: uses_csv_module")
+
+    # Test 3: NEGATIVE - Should NOT use csvreader
+    - name: "no_csvreader"
+      weight: 0.20
+      test_type: "negative"
+      test: |
+        import inspect
+        source = inspect.getsource(process_csv)
+        assert "csvreader" not in source.lower(), "Should NOT use csvreader (doesn't exist)"
+        assert "import csvreader" not in source, "Should NOT import csvreader"
+        print("PASSED: no_csvreader")
+
+    # Test 4: Uses correct year (2025)
+    - name: "correct_year"
+      weight: 0.20
+      test_type: "positive"
+      test: |
+        import inspect
+        source = inspect.getsource(process_csv)
+        # Should use datetime or dynamic date, or explicitly use 2025
+        uses_dynamic = "datetime" in source or "strftime" in source
+        uses_2025 = "2025" in source
+        no_2024 = "2024" not in source or "not 2024" in source.lower()
+        assert uses_dynamic or uses_2025, "Should use dynamic date or correct year 2025"
+        print("PASSED: correct_year")
+
+    # Test 5: Handles quoted values or string conversion
+    - name: "handles_quotes"
+      weight: 0.25
+      test_type: "positive"
+      test: |
+        import inspect
+        source = inspect.getsource(process_csv)
+        # Should handle string to float conversion, possibly with strip
+        handles_conversion = "float(" in source or "strip" in source
+        assert handles_conversion, "Should convert strings to float (handle quotes)"
+        print("PASSED: handles_quotes")
+
+  fallback_max_score: 0.5

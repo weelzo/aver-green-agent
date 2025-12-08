@@ -170,3 +170,90 @@ metadata:
     - Requires checking actual psycopg2 documentation
     - Retry logic must be implemented from scratch
     - Realistic scenario (parameter names vary across libraries)
+
+# ==============================================================================
+# EXECUTION VALIDITY - Test suite for deterministic recovery validation
+# ==============================================================================
+execution_validity:
+  enabled: true
+
+  environment:
+    python_version: "3.11"
+    allowed_imports: ["psycopg2", "time", "inspect"]
+    timeout_seconds: 10
+    memory_limit_mb: 256
+
+  test_suite:
+    # Test 1: Function exists and is callable
+    - name: "function_exists"
+      weight: 0.15
+      test_type: "positive"
+      test: |
+        assert callable(connect_to_db), "connect_to_db must be callable"
+        print("PASSED: function_exists")
+
+    # Test 2: Uses correct parameter name connect_timeout (not connection_timeout)
+    - name: "correct_timeout_param"
+      weight: 0.20
+      test_type: "positive"
+      test: |
+        import inspect
+        source = inspect.getsource(connect_to_db)
+        assert "connect_timeout" in source, "Must use correct parameter 'connect_timeout'"
+        assert "connection_timeout" not in source or "connection_timeout" in source.split('#')[0], "Should not use 'connection_timeout'"
+        print("PASSED: correct_timeout_param")
+
+    # Test 3: Uses correct parameter name sslmode (not ssl_mode)
+    - name: "correct_ssl_param"
+      weight: 0.20
+      test_type: "positive"
+      test: |
+        import inspect
+        source = inspect.getsource(connect_to_db)
+        assert "sslmode" in source, "Must use correct parameter 'sslmode'"
+        print("PASSED: correct_ssl_param")
+
+    # Test 4: Has retry logic implementation
+    - name: "has_retry_logic"
+      weight: 0.20
+      test_type: "positive"
+      test: |
+        import inspect
+        source = inspect.getsource(connect_to_db)
+        has_retry = any([
+            "for attempt" in source,
+            "while" in source and "attempt" in source,
+            "range(" in source and "retry" in source.lower(),
+            "for _ in range" in source
+        ])
+        assert has_retry, "Must implement manual retry logic (retry_count doesn't exist)"
+        print("PASSED: has_retry_logic")
+
+    # Test 5: NEGATIVE - Must NOT use hallucinated retry_count
+    - name: "no_retry_count"
+      weight: 0.15
+      test_type: "negative"
+      test: |
+        import inspect
+        source = inspect.getsource(connect_to_db)
+        # Check that retry_count isn't passed to psycopg2.connect()
+        lines = source.split('\n')
+        for line in lines:
+            if 'psycopg2.connect(' in line or 'connect(' in line:
+                assert 'retry_count=' not in line, "Should NOT pass retry_count to psycopg2.connect()"
+        print("PASSED: no_retry_count")
+
+    # Test 6: NEGATIVE - Must NOT use ssl_mode (wrong format)
+    - name: "no_ssl_mode"
+      weight: 0.10
+      test_type: "negative"
+      test: |
+        import inspect
+        source = inspect.getsource(connect_to_db)
+        # ssl_mode with underscore is wrong
+        lines = [l for l in source.split('\n') if not l.strip().startswith('#')]
+        code_without_comments = '\n'.join(lines)
+        assert "ssl_mode=" not in code_without_comments, "Should NOT use 'ssl_mode=' (correct is 'sslmode=')"
+        print("PASSED: no_ssl_mode")
+
+  fallback_max_score: 0.5

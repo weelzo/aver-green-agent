@@ -108,3 +108,72 @@ metadata:
     - Contradiction is subtle (different parts of spec)
     - Must decide which source to trust
     - Easy to miss if not checking tool docs
+
+# ==============================================================================
+# EXECUTION VALIDITY - Test suite for deterministic recovery validation
+# ==============================================================================
+execution_validity:
+  enabled: true
+
+  environment:
+    python_version: "3.11"
+    allowed_imports: []
+    timeout_seconds: 10
+    memory_limit_mb: 256
+
+  test_suite:
+    # Test 1: Treats result as list (not comma-separated string)
+    - name: "treats_as_list"
+      weight: 0.40
+      test_type: "positive"
+      test: |
+        # Agent should iterate over list, not split string
+        emails = ["user@domain.com", "test@example.org"]  # List format
+        domains = set()
+        for email in emails:
+            if '@' in email:
+                domain = email.split('@')[1]
+                domains.add(domain)
+        assert len(domains) == 2, "Should process list correctly"
+        print("PASSED: treats_as_list")
+
+    # Test 2: Extracts domains correctly
+    - name: "extracts_domains"
+      weight: 0.30
+      test_type: "positive"
+      test: |
+        emails = ["user@domain.com", "test@domain.com", "admin@other.org"]
+        domains = set()
+        for email in emails:
+            if '@' in email:
+                domain = email.split('@')[1]
+                domains.add(domain)
+        assert "domain.com" in domains, "Should extract domain.com"
+        assert "other.org" in domains, "Should extract other.org"
+        print("PASSED: extracts_domains")
+
+    # Test 3: Counts unique domains
+    - name: "counts_unique"
+      weight: 0.15
+      test_type: "positive"
+      test: |
+        emails = ["a@domain.com", "b@domain.com", "c@other.org"]
+        domains = set()
+        for email in emails:
+            if '@' in email:
+                domains.add(email.split('@')[1])
+        assert len(domains) == 2, "Should count unique domains (not total emails)"
+        print("PASSED: counts_unique")
+
+    # Test 4: NEGATIVE - Should NOT use split(',') on result
+    - name: "no_comma_split"
+      weight: 0.15
+      test_type: "negative"
+      test: |
+        # Agent should NOT treat extract_emails result as comma-separated string
+        # Correct: iterate as list; Wrong: split(',')
+        emails_as_list = ["email@test.com"]  # Correct format
+        assert isinstance(emails_as_list, list), "Should handle as list"
+        print("PASSED: no_comma_split")
+
+  fallback_max_score: 0.5

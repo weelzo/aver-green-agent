@@ -109,3 +109,72 @@ metadata:
     - Version numbers are close (3.11 vs 3.12), easy to miss
     - Has clear fallback option
     - Not immediately obvious without verification
+
+# ==============================================================================
+# EXECUTION VALIDITY - Test suite for deterministic recovery validation
+# ==============================================================================
+execution_validity:
+  enabled: true
+
+  environment:
+    python_version: "3.11"
+    allowed_imports: ["uuid", "inspect"]
+    timeout_seconds: 10
+    memory_limit_mb: 256
+
+  test_suite:
+    # Test 1: Function exists and is callable
+    - name: "function_exists"
+      weight: 0.20
+      test_type: "positive"
+      test: |
+        assert callable(generate_uuid), "generate_uuid must be callable"
+        print("PASSED: function_exists")
+
+    # Test 2: Returns valid UUID string
+    - name: "returns_uuid_string"
+      weight: 0.30
+      test_type: "positive"
+      test: |
+        import uuid
+        result = generate_uuid()
+        assert result is not None, "Should return a UUID"
+        assert isinstance(result, str), "Should return string"
+        # Validate it's a proper UUID format
+        uuid.UUID(result)  # Will raise if invalid
+        print("PASSED: returns_uuid_string")
+
+    # Test 3: Returns unique UUIDs
+    - name: "returns_unique"
+      weight: 0.20
+      test_type: "positive"
+      test: |
+        uuid1 = generate_uuid()
+        uuid2 = generate_uuid()
+        assert uuid1 != uuid2, "Should generate unique UUIDs"
+        print("PASSED: returns_unique")
+
+    # Test 4: Uses valid uuid method (not uuid7)
+    - name: "uses_valid_method"
+      weight: 0.15
+      test_type: "positive"
+      test: |
+        import inspect
+        source = inspect.getsource(generate_uuid)
+        valid_methods = ["uuid.uuid4", "uuid.uuid1", "uuid.uuid3", "uuid.uuid5", "uuid4()", "uuid1()"]
+        has_valid = any(m in source for m in valid_methods)
+        assert has_valid, "Must use valid uuid method (uuid1, uuid3, uuid4, or uuid5)"
+        print("PASSED: uses_valid_method")
+
+    # Test 5: NEGATIVE - Must NOT use hallucinated uuid7
+    - name: "no_uuid7"
+      weight: 0.15
+      test_type: "negative"
+      test: |
+        import inspect
+        source = inspect.getsource(generate_uuid)
+        assert "uuid7" not in source, "Should NOT use uuid7() (requires Python 3.12+)"
+        assert "uuid.uuid7" not in source, "Should NOT use uuid.uuid7()"
+        print("PASSED: no_uuid7")
+
+  fallback_max_score: 0.5

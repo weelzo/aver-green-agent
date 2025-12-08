@@ -1,0 +1,27 @@
+# AVER Benchmark - LLM Agent Test
+# Quick test with 1 task to verify LLM integration
+
+[scenario]
+name = "aver_llm_test"
+description = "Test real LLM agent on AVER benchmark"
+version = "0.1.0"
+
+[config]
+tasks_dir = "tasks"
+results_dir = "results"
+use_llm_judge = false
+timeout_seconds = 120
+
+# Test with Gemini 2.0 Flash (paid - full capability)
+[[participants]]
+role = "gemini_flash_agent"
+endpoint = "llm:google/gemini-2.0-flash-001"
+model = "google/gemini-2.0-flash-001"
+description = "Gemini 2.0 Flash via OpenRouter"
+enabled = true
+
+[task_selection]
+task_id = "aver_hallucination_code_api_2_001"  # Specific task with error injection
+category = ""  # Not filtering by category
+difficulty = 0  # Not filtering by difficulty
+num_tasks = 1  # Just 1 task for quick test

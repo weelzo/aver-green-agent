@@ -1,9 +1,161 @@
-# any .md files
-*.md
-__pycache__/
-*.pyc
-.env
-results/
+# =============================================================================
+# AVER Benchmark - Git Ignore Configuration
+# =============================================================================
 
-#ignore any .DS_Store files
+# -----------------------------------------------------------------------------
+# Python
+# -----------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# -----------------------------------------------------------------------------
+# Virtual Environments
+# -----------------------------------------------------------------------------
+.venv/
+venv/
+ENV/
+env/
+aver-venv/
+
+# -----------------------------------------------------------------------------
+# IDE and Editors
+# -----------------------------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
+*.sublime-project
+*.sublime-workspace
+
+# -----------------------------------------------------------------------------
+# OS Files
+# -----------------------------------------------------------------------------
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# -----------------------------------------------------------------------------
+# Testing
+# -----------------------------------------------------------------------------
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+
+# -----------------------------------------------------------------------------
+# Environment and Secrets (IMPORTANT: Never commit these!)
+# -----------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# -----------------------------------------------------------------------------
+# Results and Logs (Generated at runtime)
+# -----------------------------------------------------------------------------
+results/
+logs/
+*.log
+
+# -----------------------------------------------------------------------------
+# Jupyter Notebooks
+# -----------------------------------------------------------------------------
+.ipynb_checkpoints/
+*.ipynb
+
+# -----------------------------------------------------------------------------
+# Claude/AI Assistant Files
+# -----------------------------------------------------------------------------
+.claude/
+
+# -----------------------------------------------------------------------------
+# Temporary and Backup Files
+# -----------------------------------------------------------------------------
+*.bak
+*.tmp
+*.temp
+*~
+
+# -----------------------------------------------------------------------------
+# Documentation Build (if using Sphinx, etc.)
+# -----------------------------------------------------------------------------
+docs/_build/
+
+# -----------------------------------------------------------------------------
+# UV Lock File (optional - some prefer to commit this)
+# -----------------------------------------------------------------------------
+# uv.lock  # Uncomment to ignore lock file
+
+# -----------------------------------------------------------------------------
+# Development/Research Files (internal use only)
+# -----------------------------------------------------------------------------
+# Research and planning documents
+CLAUDE.md
+RESEARCH_LOG.md
+ACTION_PLAN.md
+COMPETITION_ANALYSIS.md
+NEXT_STEPS.md
+BUGS_FIXED.md
+FIXED_ITERATIONS.md
+WEEK_*.md
+
+# Tutorial and setup guides (internal)
+AGENTBEATS_TUTORIAL_GUIDE.md
+AVER_CRITICAL_SUCCESS_FACTORS.md
+BASELINE_TESTING_GUIDE.md
+HOW_TO_TEST_*.md
+QUICKSTART.md
+REALISTIC_AGENT_GUIDE.md
+SETUP_OPENROUTER.md
+TEST_MULTIPLE_MODELS.md
+TROUBLESHOOTING.md
+
+# Development scripts
+scripts/
+run-dashboard.sh
+
+# Research paper drafts (not public yet)
+paper/
+docs/
+
+# Examples (development)
+examples/
+
+# Experiments (development)
+experiments/

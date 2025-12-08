@@ -170,3 +170,84 @@ metadata:
     - Errors are subtle (plausible but wrong)
     - Need to recognize when to abandon approach entirely
     - Realistic scenario (incorrect technical guidance)
+
+# ==============================================================================
+# EXECUTION VALIDITY - Test suite for deterministic recovery validation
+# ==============================================================================
+execution_validity:
+  enabled: true
+
+  environment:
+    python_version: "3.11"
+    allowed_imports: ["functools", "time", "threading", "inspect"]
+    timeout_seconds: 10
+    memory_limit_mb: 256
+
+  test_suite:
+    # Test 1: Decorator exists
+    - name: "decorator_exists"
+      weight: 0.10
+      test_type: "positive"
+      test: |
+        assert callable(cache_with_expiry), "cache_with_expiry must be callable"
+        print("PASSED: decorator_exists")
+
+    # Test 2: Uses custom cache dict (not relying on lru_cache for TTL)
+    - name: "custom_cache_implementation"
+      weight: 0.30
+      test_type: "positive"
+      test: |
+        import inspect
+        source = inspect.getsource(cache_with_expiry)
+        # Should have custom cache dict
+        has_custom_cache = "cache = {}" in source or "cache = dict()" in source or "cache[" in source
+        # Should have timestamp tracking
+        has_timestamp = "time.time()" in source or "time()" in source
+        assert has_custom_cache, "Should use custom cache dict"
+        assert has_timestamp, "Should track timestamps"
+        print("PASSED: custom_cache_implementation")
+
+    # Test 3: TTL expiration works
+    - name: "ttl_check_logic"
+      weight: 0.25
+      test_type: "positive"
+      test: |
+        import inspect
+        source = inspect.getsource(cache_with_expiry)
+        # Should check if time elapsed > ttl
+        has_ttl_check = "ttl" in source and ("<" in source or ">" in source)
+        has_expiry_logic = "expire" in source.lower() or "time.time()" in source
+        assert has_ttl_check or has_expiry_logic, "Should implement TTL checking"
+        print("PASSED: ttl_check_logic")
+
+    # Test 4: Decorated function works
+    - name: "decorator_works"
+      weight: 0.20
+      test_type: "positive"
+      test: |
+        @cache_with_expiry(ttl=300)
+        def test_func(x):
+            return x ** 2
+
+        result1 = test_func(5)
+        assert result1 == 25, f"Expected 25, got {result1}"
+        result2 = test_func(5)  # Should be cached
+        assert result2 == 25, "Cached result should match"
+        print("PASSED: decorator_works")
+
+    # Test 5: NEGATIVE - Should NOT assume lru_cache stores tuples
+    - name: "no_lru_cache_tuple_assumption"
+      weight: 0.15
+      test_type: "negative"
+      test: |
+        import inspect
+        source = inspect.getsource(cache_with_expiry)
+        # Check for misleading pattern where lru_cache is expected to store tuples
+        bad_pattern = "@lru_cache" in source and "(result, timestamp)" not in source.split("@lru_cache")[0]
+        # If using lru_cache, it should be clear custom cache is separate
+        if "@lru_cache" in source:
+            has_separate_cache = "cache = {}" in source or "cache[" in source
+            assert has_separate_cache, "If using lru_cache, must have separate timestamp cache"
+        print("PASSED: no_lru_cache_tuple_assumption")
+
+  fallback_max_score: 0.5

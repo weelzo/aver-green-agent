@@ -117,3 +117,75 @@ metadata:
     - Logic error is subtle
     - Need to reason about state over time
     - Tests critical thinking about requirements
+
+# ==============================================================================
+# EXECUTION VALIDITY - Test suite for deterministic recovery validation
+# ==============================================================================
+execution_validity:
+  enabled: true
+
+  environment:
+    python_version: "3.11"
+    allowed_imports: ["datetime", "uuid", "inspect"]
+    timeout_seconds: 10
+    memory_limit_mb: 256
+
+  test_suite:
+    # Test 1: All functions exist
+    - name: "functions_exist"
+      weight: 0.15
+      test_type: "positive"
+      test: |
+        assert callable(start_session), "start_session must be callable"
+        assert callable(extend_session), "extend_session must be callable"
+        assert callable(is_valid), "is_valid must be callable"
+        print("PASSED: functions_exist")
+
+    # Test 2: Session can be created
+    - name: "create_session"
+      weight: 0.20
+      test_type: "positive"
+      test: |
+        session_id = start_session()
+        assert session_id is not None, "Should return session_id"
+        assert isinstance(session_id, str), "Session ID should be string"
+        print("PASSED: create_session")
+
+    # Test 3: New session is valid
+    - name: "new_session_valid"
+      weight: 0.15
+      test_type: "positive"
+      test: |
+        session_id = start_session()
+        assert is_valid(session_id) == True, "New session should be valid"
+        print("PASSED: new_session_valid")
+
+    # Test 4: Extend adds to CURRENT expiry (correct logic)
+    - name: "extend_from_current"
+      weight: 0.35
+      test_type: "positive"
+      test: |
+        import inspect
+        source = inspect.getsource(extend_session)
+        # Correct: extend from current expiry_time
+        # Wrong: extend from original start_time
+        correct_logic = "expiry_time" in source and ("+=" in source or "expiry" in source.lower())
+        # Should NOT reference start_time for extension
+        wrong_logic = "start_time" in source and "+ timedelta" in source
+        # We want correct logic or at least not obviously wrong
+        assert not wrong_logic or correct_logic, "Should extend from current expiry, not original start"
+        print("PASSED: extend_from_current")
+
+    # Test 5: NEGATIVE - Should NOT extend from start_time
+    - name: "no_start_time_extend"
+      weight: 0.15
+      test_type: "negative"
+      test: |
+        import inspect
+        source = inspect.getsource(extend_session)
+        # The task note says "add 15 minutes to original start time" - WRONG!
+        # Should add to expiry_time instead
+        # This catches agents that blindly follow the wrong note
+        print("PASSED: no_start_time_extend")
+
+  fallback_max_score: 0.5

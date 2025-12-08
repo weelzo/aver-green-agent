@@ -47,6 +47,9 @@ class TaskSuite:
 
         # Iterate through all YAML files in tasks directory and subdirectories
         for yaml_file in self.tasks_dir.rglob("*.yaml"):
+            # Skip template files
+            if "TEMPLATE" in yaml_file.name.upper():
+                continue
             try:
                 task = self._load_task_file(yaml_file)
                 self.tasks.append(task)
@@ -166,6 +169,33 @@ class TaskSuite:
         """
         return self._tasks_by_difficulty.get(difficulty, [])
 
+    def get_tasks_with_execution_tests(self) -> List[TaskScenario]:
+        """
+        Get all tasks that have execution-based validation enabled
+
+        Returns:
+            List of tasks with test suites
+        """
+        return [t for t in self.tasks if t.has_execution_tests()]
+
+    def get_negative_control_tasks(self) -> List[TaskScenario]:
+        """
+        Get all negative control tasks (tasks without errors)
+
+        Returns:
+            List of negative control tasks
+        """
+        return [t for t in self.tasks if t.is_negative_control()]
+
+    def get_coding_tasks(self) -> List[TaskScenario]:
+        """
+        Get all coding domain tasks
+
+        Returns:
+            List of coding tasks
+        """
+        return [t for t in self.tasks if t.domain == TaskDomain.CODING]
+
     def get_statistics(self) -> Dict:
         """
         Get task suite statistics
@@ -177,7 +207,9 @@ class TaskSuite:
             "total_tasks": len(self.tasks),
             "by_category": {},
             "by_difficulty": {},
-            "by_domain": {}
+            "by_domain": {},
+            "execution_validity": {},
+            "negative_controls": {}
         }
 
         # Category distribution
@@ -195,6 +227,26 @@ class TaskSuite:
         for task in self.tasks:
             domain_counts[task.domain.value] = domain_counts.get(task.domain.value, 0) + 1
         stats["by_domain"] = domain_counts
+
+        # Execution validity statistics
+        tasks_with_tests = self.get_tasks_with_execution_tests()
+        stats["execution_validity"] = {
+            "tasks_with_execution_tests": len(tasks_with_tests),
+            "total_test_cases": sum(
+                len(t.execution_validity.test_suite) if t.execution_validity else 0
+                for t in tasks_with_tests
+            ),
+            "coverage_percent": round(
+                len(tasks_with_tests) / max(len(self.tasks), 1) * 100, 1
+            )
+        }
+
+        # Negative control statistics
+        negative_controls = self.get_negative_control_tasks()
+        stats["negative_controls"] = {
+            "count": len(negative_controls),
+            "task_ids": [t.task_id for t in negative_controls]
+        }
 
         return stats
 
@@ -224,13 +276,41 @@ class TaskSuite:
         if not task.scoring.validate():
             errors.append(f"scoring weights must sum to 100, got {task.scoring.detection + task.scoring.diagnosis + task.scoring.recovery}")
 
-        # Check detection signals exist
-        if not task.detection_signals.explicit and not task.detection_signals.implicit:
-            errors.append("at least one detection signal (explicit or implicit) is required")
+        # Check detection signals exist (except for negative control tasks)
+        if not task.is_negative_control():
+            if not task.detection_signals.explicit and not task.detection_signals.implicit:
+                errors.append("at least one detection signal (explicit or implicit) is required")
 
-        # Check recovery criteria
-        if not task.recovery_criteria.success:
-            errors.append("success criteria is required")
+            # Check recovery criteria
+            if not task.recovery_criteria.success:
+                errors.append("success criteria is required")
+
+        # Validate execution_validity if present
+        if task.execution_validity and task.execution_validity.enabled:
+            exec_val = task.execution_validity
+
+            # Check test suite is not empty
+            if not exec_val.test_suite:
+                errors.append("execution_validity enabled but no test_suite defined")
+
+            # Check test weights sum to reasonable value
+            total_weight = sum(tc.weight for tc in exec_val.test_suite)
+            if total_weight <= 0:
+                errors.append("test suite weights must sum to positive value")
+
+            # Check each test case has required fields
+            for i, tc in enumerate(exec_val.test_suite):
+                if not tc.name:
+                    errors.append(f"test_suite[{i}]: name is required")
+                if not tc.test:
+                    errors.append(f"test_suite[{i}]: test code is required")
+                if tc.test_type not in ["positive", "negative"]:
+                    errors.append(f"test_suite[{i}]: test_type must be 'positive' or 'negative'")
+
+        # Validate negative_control if present
+        if task.negative_control:
+            if task.negative_control.should_detect_error:
+                errors.append("negative_control tasks should have should_detect_error=false")
 
         return errors
 

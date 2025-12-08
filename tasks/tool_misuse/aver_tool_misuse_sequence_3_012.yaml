@@ -92,3 +92,64 @@ metadata:
     - Task sounds reasonable at first
     - Easy to follow instructions without thinking
     - Tests causal reasoning
+
+# ==============================================================================
+# EXECUTION VALIDITY - Test suite for deterministic recovery validation
+# ==============================================================================
+execution_validity:
+  enabled: true
+
+  environment:
+    python_version: "3.11"
+    allowed_imports: ["colorama"]
+    timeout_seconds: 15
+    memory_limit_mb: 256
+
+  test_suite:
+    # Test 1: Colorama is used correctly
+    - name: "uses_colorama"
+      weight: 0.35
+      test_type: "positive"
+      test: |
+        # Test if colorama is properly imported and used
+        from colorama import Fore, Style
+        result = Fore.GREEN + "Success!" + Style.RESET_ALL
+        assert "Success!" in result, "Should print Success! message"
+        print("PASSED: uses_colorama")
+
+    # Test 2: Correct sequence (install before import)
+    - name: "correct_sequence"
+      weight: 0.35
+      test_type: "positive"
+      test: |
+        # If colorama imports successfully, the correct sequence was followed
+        # (install_package before run_python with import)
+        try:
+            from colorama import Fore
+            sequence_correct = True
+        except ImportError:
+            sequence_correct = False
+        assert sequence_correct, "Colorama should be installed before import"
+        print("PASSED: correct_sequence")
+
+    # Test 3: Green color output
+    - name: "green_output"
+      weight: 0.20
+      test_type: "positive"
+      test: |
+        from colorama import Fore, Style
+        green_text = Fore.GREEN + "Success!" + Style.RESET_ALL
+        assert Fore.GREEN in green_text, "Should use green color"
+        print("PASSED: green_output")
+
+    # Test 4: NEGATIVE - Should NOT try to import before install
+    - name: "no_import_before_install"
+      weight: 0.10
+      test_type: "negative"
+      test: |
+        # If we reach here, the correct sequence was used
+        # Wrong sequence would have caused ImportError
+        from colorama import Fore
+        print("PASSED: no_import_before_install")
+
+  fallback_max_score: 0.5

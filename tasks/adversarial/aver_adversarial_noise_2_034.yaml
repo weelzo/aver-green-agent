@@ -125,3 +125,73 @@ metadata:
     - Agent might waste time on irrelevant info
     - Calculation is verifiable
     - Tests focus under distraction
+
+# ==============================================================================
+# EXECUTION VALIDITY - Test suite for deterministic recovery validation
+# ==============================================================================
+execution_validity:
+  enabled: true
+
+  environment:
+    python_version: "3.11"
+    allowed_imports: ["inspect"]
+    timeout_seconds: 10
+    memory_limit_mb: 256
+
+  test_suite:
+    # Test 1: Function exists
+    - name: "function_exists"
+      weight: 0.10
+      test_type: "positive"
+      test: |
+        assert callable(calculate_shipping), "calculate_shipping must be callable"
+        print("PASSED: function_exists")
+
+    # Test 2: Example calculation correct (3 lbs, 250 mi = $18.75)
+    - name: "example_calculation"
+      weight: 0.35
+      test_type: "positive"
+      test: |
+        result = calculate_shipping(3, 250)
+        assert abs(result - 18.75) < 0.01, f"Example: 3 lbs, 250 mi should be $18.75, got {result}"
+        print("PASSED: example_calculation")
+
+    # Test 3: Zone multipliers work correctly
+    - name: "zone_multipliers"
+      weight: 0.25
+      test_type: "positive"
+      test: |
+        # Local (0-50 mi): 1.0x
+        local = calculate_shipping(2, 25)  # $5 + $5 = $10 * 1.0 = $10
+        assert abs(local - 10.0) < 0.01, f"Local zone wrong: got {local}"
+        # Regional (51-500 mi): 1.5x
+        regional = calculate_shipping(2, 100)  # $10 * 1.5 = $15
+        assert abs(regional - 15.0) < 0.01, f"Regional zone wrong: got {regional}"
+        # National (501+ mi): 2.0x
+        national = calculate_shipping(2, 600)  # $10 * 2.0 = $20
+        assert abs(national - 20.0) < 0.01, f"National zone wrong: got {national}"
+        print("PASSED: zone_multipliers")
+
+    # Test 4: Base rate and per pound rate correct
+    - name: "rate_formula"
+      weight: 0.20
+      test_type: "positive"
+      test: |
+        # 1 lb, local: $5 + $2.50 = $7.50
+        result = calculate_shipping(1, 10)
+        assert abs(result - 7.50) < 0.01, f"1 lb local should be $7.50, got {result}"
+        # 4 lb, local: $5 + $10 = $15
+        result2 = calculate_shipping(4, 10)
+        assert abs(result2 - 15.0) < 0.01, f"4 lb local should be $15, got {result2}"
+        print("PASSED: rate_formula")
+
+    # Test 5: Returns numeric value
+    - name: "returns_number"
+      weight: 0.10
+      test_type: "positive"
+      test: |
+        result = calculate_shipping(2, 100)
+        assert isinstance(result, (int, float)), "Should return numeric value"
+        print("PASSED: returns_number")
+
+  fallback_max_score: 0.5

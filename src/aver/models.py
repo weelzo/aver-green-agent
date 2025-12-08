@@ -126,6 +126,289 @@ class Scoring:
         return self.detection + self.diagnosis + self.recovery == 100
 
 
+# =============================================================================
+# EXECUTION VALIDITY DATA STRUCTURES
+# =============================================================================
+
+@dataclass
+class ExecutionEnvironment:
+    """Environment configuration for code execution"""
+    python_version: str = "3.11"
+    allowed_imports: List[str] = field(default_factory=list)
+    timeout_seconds: int = 10
+    memory_limit_mb: int = 256
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "python_version": self.python_version,
+            "allowed_imports": self.allowed_imports,
+            "timeout_seconds": self.timeout_seconds,
+            "memory_limit_mb": self.memory_limit_mb
+        }
+
+
+@dataclass
+class TestCase:
+    """Single test case for execution validation"""
+    name: str
+    weight: float = 1.0
+    setup: str = ""
+    test: str = ""
+    teardown: str = ""
+    test_type: str = "positive"  # "positive" or "negative"
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "name": self.name,
+            "weight": self.weight,
+            "setup": self.setup,
+            "test": self.test,
+            "teardown": self.teardown,
+            "test_type": self.test_type
+        }
+
+
+@dataclass
+class ExecutionValidity:
+    """Execution-based validity configuration for a task"""
+    enabled: bool = True
+    environment: ExecutionEnvironment = field(default_factory=ExecutionEnvironment)
+    test_suite: List[TestCase] = field(default_factory=list)
+    fallback_max_score: float = 0.5  # Max score if execution fails
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "enabled": self.enabled,
+            "environment": self.environment.to_dict(),
+            "test_suite": [tc.to_dict() for tc in self.test_suite],
+            "fallback_max_score": self.fallback_max_score
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "ExecutionValidity":
+        """Create ExecutionValidity from dictionary"""
+        env_data = data.get("environment", {})
+        return cls(
+            enabled=data.get("enabled", True),
+            environment=ExecutionEnvironment(
+                python_version=env_data.get("python_version", "3.11"),
+                allowed_imports=env_data.get("allowed_imports", []),
+                timeout_seconds=env_data.get("timeout_seconds", 10),
+                memory_limit_mb=env_data.get("memory_limit_mb", 256)
+            ),
+            test_suite=[TestCase(**tc) for tc in data.get("test_suite", [])],
+            fallback_max_score=data.get("fallback_max_score", 0.5)
+        )
+
+
+@dataclass
+class ExecutionResult:
+    """Result of code execution validation"""
+    executed: bool                      # Did code run at all?
+    tests_passed: int                   # Number of tests passed
+    tests_total: int                    # Total tests
+    weighted_score: float               # Weighted test score (0-1)
+    execution_error: Optional[str] = None
+    test_results: List[Dict[str, Any]] = field(default_factory=list)
+    confidence: str = "high"            # "high" (execution) or "low" (fallback)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "executed": self.executed,
+            "tests_passed": self.tests_passed,
+            "tests_total": self.tests_total,
+            "weighted_score": self.weighted_score,
+            "execution_error": self.execution_error,
+            "test_results": self.test_results,
+            "confidence": self.confidence
+        }
+
+
+# =============================================================================
+# META-COGNITIVE VALIDITY DATA STRUCTURES
+# =============================================================================
+
+@dataclass
+class CausalChainResult:
+    """
+    Result of causal chain validation
+
+    Validates that Detection → Diagnosis → Recovery form a coherent chain.
+    STRICT SCORING: Invalid chain → scores halved (multiplier = 0.5)
+    """
+    valid: bool
+    detection_specific: bool      # Detection names the actual error
+    diagnosis_explains: bool      # Diagnosis explains why it's wrong
+    recovery_follows: bool        # Recovery uses approach from diagnosis
+    score_multiplier: float       # 1.0 if valid, 0.5 if invalid (strict)
+    reason: str = ""
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "valid": self.valid,
+            "detection_specific": self.detection_specific,
+            "diagnosis_explains": self.diagnosis_explains,
+            "recovery_follows": self.recovery_follows,
+            "score_multiplier": self.score_multiplier,
+            "reason": self.reason
+        }
+
+
+@dataclass
+class TemporalIntegrityResult:
+    """
+    Result of temporal ordering validation
+
+    Validates correct cognitive sequence:
+    - Ideal: Detection → Diagnosis → Recovery (all before execution)
+    - Acceptable: Detection → Recovery (before execution)
+    - Trial-and-error: Detection after failed execution
+    - No detection: Agent didn't notice error
+    """
+    pattern: str                        # "ideal", "acceptable", "trial_and_error", "no_detection"
+    detection_turn: Optional[int] = None
+    diagnosis_turn: Optional[int] = None
+    first_execution_turn: Optional[int] = None
+    multiplier: float = 1.0             # Score multiplier based on pattern
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "pattern": self.pattern,
+            "detection_turn": self.detection_turn,
+            "diagnosis_turn": self.diagnosis_turn,
+            "first_execution_turn": self.first_execution_turn,
+            "multiplier": self.multiplier
+        }
+
+
+@dataclass
+class DiagnosisDepthResult:
+    """
+    Result of diagnosis depth analysis
+
+    Deep diagnosis must:
+    1. Identify error TYPE (e.g., "hallucinated library")
+    2. Name SPECIFIC error (e.g., "yamlparser")
+    3. Explain WHY wrong (e.g., "doesn't exist")
+    4. Identify CORRECT approach (e.g., "use yaml.safe_load")
+    """
+    identifies_error_type: bool         # e.g., "hallucinated library"
+    names_specific_error: bool          # e.g., "yamlparser"
+    explains_why_wrong: bool            # e.g., "doesn't exist"
+    identifies_correct_approach: bool   # e.g., "use yaml module"
+    depth_score: float = 0.0            # 0.0 - 1.0
+    depth_level: str = "none"           # "deep", "shallow", "none"
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "identifies_error_type": self.identifies_error_type,
+            "names_specific_error": self.names_specific_error,
+            "explains_why_wrong": self.explains_why_wrong,
+            "identifies_correct_approach": self.identifies_correct_approach,
+            "depth_score": self.depth_score,
+            "depth_level": self.depth_level
+        }
+
+
+@dataclass
+class MetaCognitiveMetrics:
+    """
+    Complete meta-cognitive evaluation results
+
+    Combines causal chain, temporal integrity, and diagnosis depth
+    validation to provide a comprehensive assessment of the agent's
+    cognitive process during error detection and recovery.
+    """
+    # Base scores (before multipliers)
+    detection_base: float
+    diagnosis_base: float
+    recovery_base: float
+
+    # Validity results
+    causal_chain: CausalChainResult
+    temporal: TemporalIntegrityResult
+    diagnosis_depth: DiagnosisDepthResult
+
+    # Final adjusted scores (after multipliers)
+    detection_final: float
+    diagnosis_final: float
+    recovery_final: float
+    total_score: float
+
+    # Confidence & warnings
+    cognitive_confidence: str = "medium"  # "high", "medium", "low"
+    cognitive_warning: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "base_scores": {
+                "detection": self.detection_base,
+                "diagnosis": self.diagnosis_base,
+                "recovery": self.recovery_base
+            },
+            "validity": {
+                "causal_chain": self.causal_chain.to_dict(),
+                "temporal": self.temporal.to_dict(),
+                "diagnosis_depth": self.diagnosis_depth.to_dict()
+            },
+            "final_scores": {
+                "detection": self.detection_final,
+                "diagnosis": self.diagnosis_final,
+                "recovery": self.recovery_final,
+                "total": self.total_score
+            },
+            "cognitive_confidence": self.cognitive_confidence,
+            "cognitive_warning": self.cognitive_warning
+        }
+
+
+@dataclass
+class ConsistencyResult:
+    """
+    Result of cross-task consistency analysis
+
+    Measures how consistently an agent performs across similar error types.
+    High mean + low variance = consistent true capability
+    """
+    category: str
+    sample_size: int
+    mean_detection: float = 0.0
+    std_detection: float = 0.0
+    consistency_score: Optional[float] = None
+    interpretation: str = "insufficient_data"  # "highly_consistent", "moderately_consistent", "inconsistent"
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "category": self.category,
+            "sample_size": self.sample_size,
+            "mean_detection": self.mean_detection,
+            "std_detection": self.std_detection,
+            "consistency_score": self.consistency_score,
+            "interpretation": self.interpretation
+        }
+
+
+# =============================================================================
+# NEGATIVE CONTROL DATA STRUCTURES
+# =============================================================================
+
+@dataclass
+class NegativeControlConfig:
+    """Configuration for negative control tasks (tasks without errors)"""
+    false_positive_signals: List[str] = field(default_factory=list)
+    should_detect_error: bool = False
+    expected_detection_score: float = 0.0
+    expected_recovery_score: float = 1.0
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "false_positive_signals": self.false_positive_signals,
+            "should_detect_error": self.should_detect_error,
+            "expected_detection_score": self.expected_detection_score,
+            "expected_recovery_score": self.expected_recovery_score
+        }
+
+
 @dataclass
 class TaskScenario:
     """
@@ -137,6 +420,8 @@ class TaskScenario:
     - Detection signals
     - Recovery criteria
     - Scoring weights
+    - Execution validity (test suites for code tasks)
+    - Negative control config (for tasks without errors)
     """
     task_id: str
     category: ErrorCategory
@@ -151,10 +436,14 @@ class TaskScenario:
     optimal_turns: int = 3
     expected_output: str = ""
     metadata: Dict[str, Any] = field(default_factory=dict)
+    # NEW: Execution-based validity
+    execution_validity: Optional[ExecutionValidity] = None
+    # NEW: Negative control configuration (for tasks without errors)
+    negative_control: Optional[NegativeControlConfig] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for YAML serialization"""
-        return {
+        result = {
             "task_id": self.task_id,
             "category": self.category.value,
             "difficulty": self.difficulty.value,
@@ -169,38 +458,79 @@ class TaskScenario:
             "expected_output": self.expected_output,
             "metadata": self.metadata
         }
+        # Add optional fields if present
+        if self.execution_validity:
+            result["execution_validity"] = self.execution_validity.to_dict()
+        if self.negative_control:
+            result["negative_control"] = self.negative_control.to_dict()
+        return result
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "TaskScenario":
         """Create TaskScenario from dictionary (YAML load)"""
+        # Parse execution validity if present
+        exec_validity = None
+        if "execution_validity" in data:
+            exec_validity = ExecutionValidity.from_dict(data["execution_validity"])
+
+        # Parse negative control config if present
+        neg_control = None
+        if "negative_control" in data:
+            nc_data = data["negative_control"]
+            neg_control = NegativeControlConfig(
+                false_positive_signals=nc_data.get("false_positive_signals", []),
+                should_detect_error=nc_data.get("should_detect_error", False),
+                expected_detection_score=nc_data.get("expected_detection_score", 0.0),
+                expected_recovery_score=nc_data.get("expected_recovery_score", 1.0)
+            )
+
+        # Handle "none" injection point for negative control tasks
+        injection_point_str = data["error_injection"]["injection_point"]
+        if injection_point_str == "none":
+            injection_point = InjectionPoint.TASK_DESCRIPTION  # Default, but error_type will be "none"
+        else:
+            injection_point = InjectionPoint(injection_point_str)
+
         return cls(
             task_id=data["task_id"],
-            category=ErrorCategory(data["category"]),
+            category=ErrorCategory(data["category"]) if data["category"] != "negative_control" else ErrorCategory.HALLUCINATION,
             difficulty=DifficultyLevel(data["difficulty"]),
             domain=TaskDomain(data["domain"]),
             task_description=data["task_description"],
-            tools=[Tool(**tool) for tool in data["tools"]],
+            tools=[Tool(**tool) for tool in data.get("tools", [])],
             error_injection=ErrorInjection(
-                injection_point=InjectionPoint(data["error_injection"]["injection_point"]),
+                injection_point=injection_point,
                 injection_turn=data["error_injection"].get("injection_turn", 0),
                 error_type=data["error_injection"].get("error_type", ""),
                 error_data=data["error_injection"].get("error_data", {}),
                 ground_truth=data["error_injection"].get("ground_truth", "")
             ),
             detection_signals=DetectionSignals(
-                explicit=data["detection_signals"].get("explicit", []),
-                implicit=data["detection_signals"].get("implicit", [])
+                explicit=data.get("detection_signals", {}).get("explicit", []),
+                implicit=data.get("detection_signals", {}).get("implicit", [])
             ),
             recovery_criteria=RecoveryCriteria(
-                success=data["recovery_criteria"].get("success", []),
-                partial=data["recovery_criteria"].get("partial", []),
-                failure=data["recovery_criteria"].get("failure", [])
+                success=data.get("recovery_criteria", {}).get("success", []),
+                partial=data.get("recovery_criteria", {}).get("partial", []),
+                failure=data.get("recovery_criteria", {}).get("failure", [])
             ),
             scoring=Scoring(**data.get("scoring", {})),
             optimal_turns=data.get("optimal_turns", 3),
             expected_output=data.get("expected_output", ""),
-            metadata=data.get("metadata", {})
+            metadata=data.get("metadata", {}),
+            execution_validity=exec_validity,
+            negative_control=neg_control
         )
+
+    def is_negative_control(self) -> bool:
+        """Check if this is a negative control task (no error injected)"""
+        return self.negative_control is not None or self.error_injection.error_type == "none"
+
+    def has_execution_tests(self) -> bool:
+        """Check if this task has execution-based validation"""
+        return (self.execution_validity is not None and
+                self.execution_validity.enabled and
+                len(self.execution_validity.test_suite) > 0)
 
 
 @dataclass
@@ -272,6 +602,11 @@ class EvaluationMetrics:
     diagnosis_details: Dict[str, Any] = field(default_factory=dict)
     recovery_details: Dict[str, Any] = field(default_factory=dict)
 
+    # Task context for consistency analysis
+    category: str = ""  # Error category
+    difficulty: int = 0  # Difficulty level (1-4)
+    is_negative_control: bool = False  # True if this was a negative control task
+
     # Metadata
     model_name: str = ""  # Track which model was tested
     num_turns: int = 0
@@ -284,6 +619,9 @@ class EvaluationMetrics:
             "task_id": self.task_id,
             "agent_id": self.agent_id,
             "model_name": self.model_name,
+            "category": self.category,
+            "difficulty": self.difficulty,
+            "is_negative_control": self.is_negative_control,
             "scores": {
                 "detection": round(self.detection_score, 3),
                 "diagnosis": round(self.diagnosis_score, 3),

@@ -107,3 +107,57 @@ metadata:
     - Basic calculation
     - Obvious when computed ($1000 difference)
     - Tests validation habit (essential skill)
+
+# ==============================================================================
+# EXECUTION VALIDITY - Test suite for deterministic recovery validation
+# ==============================================================================
+execution_validity:
+  enabled: true
+
+  environment:
+    python_version: "3.11"
+    allowed_imports: ["math", "inspect"]
+    timeout_seconds: 10
+    memory_limit_mb: 256
+
+  test_suite:
+    # Test 1: Function exists
+    - name: "function_exists"
+      weight: 0.20
+      test_type: "positive"
+      test: |
+        assert callable(compound_interest), "compound_interest must be callable"
+        print("PASSED: function_exists")
+
+    # Test 2: Calculates correct answer
+    - name: "correct_calculation"
+      weight: 0.40
+      test_type: "positive"
+      test: |
+        result = compound_interest(1000, 0.05, 10)
+        expected = 1628.89  # Correct answer, not the hallucinated 2628.89
+        assert abs(result - expected) < 0.01, f"Expected ~1628.89, got {result}"
+        print("PASSED: correct_calculation")
+
+    # Test 3: Works with other inputs
+    - name: "other_inputs"
+      weight: 0.20
+      test_type: "positive"
+      test: |
+        # Test with different values
+        result = compound_interest(1000, 0.10, 5)
+        expected = 1000 * (1.10) ** 5  # ~1610.51
+        assert abs(result - expected) < 0.01, f"Expected ~1610.51, got {result}"
+        print("PASSED: other_inputs")
+
+    # Test 4: NEGATIVE - Must NOT return hallucinated answer 2628.89
+    - name: "no_wrong_answer"
+      weight: 0.20
+      test_type: "negative"
+      test: |
+        result = compound_interest(1000, 0.05, 10)
+        wrong_answer = 2628.89
+        assert abs(result - wrong_answer) > 100, f"Should NOT return the hallucinated answer {wrong_answer}"
+        print("PASSED: no_wrong_answer")
+
+  fallback_max_score: 0.5
