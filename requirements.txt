@@ -1,10 +1,33 @@
-  fastapi>=0.104.0
-  uvicorn>=0.24.0
-  pydantic>=2.0.0
-  httpx>=0.25.0
-  pyyaml>=6.0
-  docker>=6.1.0
-  pytest>=7.4.0
-  openai>=1.0.0
-  anthropic>=0.25.0
-  python-dotenv>=1.0.0
+# AVER Benchmark Requirements
+# For Google Cloud Buildpacks deployment (must be requirements.txt, not pyproject.toml)
+
+# AgentBeats Integration
+earthshaker>=0.2.1
+agentbeats>=1.2.6
+typer>=0.9.0
+
+# Web Framework
+fastapi>=0.104.0
+uvicorn>=0.24.0
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+
+# HTTP & Networking
+httpx>=0.25.0
+
+# Data Processing
+pyyaml>=6.0
+
+# Container Support
+docker>=6.1.0
+
+# LLM APIs (optional - for real agent testing)
+openai>=1.0.0
+anthropic>=0.25.0
+
+# Environment
+python-dotenv>=1.0.0
+
+# Testing
+pytest>=7.4.0
+pytest-asyncio>=0.23.0

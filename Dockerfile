@@ -1,72 +1,46 @@
-# AVER Benchmark - Docker Image
+# AVER Benchmark - Cloud Run + AgentBeats
 # Agent Verification & Error Recovery Benchmark
 #
 # Build:   docker build -t aver-benchmark .
-# Run:     docker run --rm aver-benchmark
-# With API key: docker run --rm -e OPENROUTER_API_KEY=sk-... aver-benchmark
+# Run:     docker run -p 8010:8010 aver-benchmark
 
-# =============================================================================
-# Stage 1: Builder - Install dependencies with UV
-# =============================================================================
-FROM python:3.11-slim as builder
-
-# Install UV for fast dependency management
-RUN pip install uv
-
-WORKDIR /app
-
-# Copy dependency files first (better caching)
-COPY pyproject.toml uv.lock ./
-
-# Create virtual environment and install dependencies
-RUN uv venv /app/.venv && \
-    uv pip install --python /app/.venv/bin/python -e .
-
-# =============================================================================
-# Stage 2: Runtime - Minimal image for running benchmark
-# =============================================================================
-FROM python:3.11-slim as runtime
+FROM python:3.11-slim
 
 LABEL maintainer="AVER Research Team"
 LABEL description="AVER Benchmark - Agent Verification & Error Recovery"
 LABEL version="0.1.0"
 
-# Create non-root user for security
-RUN useradd --create-home --shell /bin/bash aver
-
 WORKDIR /app
 
-# Copy virtual environment from builder
-COPY --from=builder /app/.venv /app/.venv
+# Install dependencies from requirements.txt (Cloud Run standard)
+COPY requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
+COPY main.py ./
+COPY run.sh ./
 COPY src/ ./src/
 COPY tasks/ ./tasks/
 COPY scenarios/ ./scenarios/
 COPY pyproject.toml ./
 
+# Make run.sh executable
+RUN chmod +x run.sh
+
 # Create results directory
-RUN mkdir -p results && chown -R aver:aver /app
+RUN mkdir -p results
 
-# Switch to non-root user
-USER aver
-
-# Add venv to PATH
-ENV PATH="/app/.venv/bin:$PATH"
+# Environment variables
 ENV PYTHONPATH="/app:$PYTHONPATH"
 ENV PYTHONUNBUFFERED=1
 
-# Default environment variables (can be overridden)
-ENV OPENROUTER_API_KEY=""
-ENV AVER_MODEL="mock"
-
-# Expose port for potential A2A server mode (future)
-EXPOSE 9000
+# Cloud Run uses PORT env variable (default 8080)
+# AgentBeats controller runs on 8010 and manages agent ports
+EXPOSE 8010
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "from src.aver.task_suite import TaskSuite; TaskSuite('tasks').load_all_tasks()" || exit 1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+    CMD curl -f http://localhost:8010/agents || exit 1
 
-# Default command: Run the demo benchmark
-ENTRYPOINT ["python", "-m", "src.aver.cli"]
-CMD ["scenarios/aver/scenario.toml"]
+# Run AgentBeats controller (manages the AVER green agent)
+CMD ["agentbeats", "run_ctrl"]
