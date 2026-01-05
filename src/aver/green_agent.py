@@ -30,6 +30,10 @@ from .task_suite import TaskSuite
 from .evaluator import ReliabilityEvaluator
 from .error_injector import ErrorInjector
 from .trace_analyzer import TraceAnalyzer
+from .logging_config import get_logger
+
+# Get logger for this component
+logger = get_logger('green_agent')
 
 
 class AVERGreenAgent:
@@ -68,7 +72,7 @@ class AVERGreenAgent:
 
         # Load all tasks
         num_tasks = self.task_suite.load_all_tasks()
-        print(f"[AVER] Loaded {num_tasks} tasks")
+        logger.info(f"Loaded {num_tasks} tasks")
 
     async def assess_agent(
         self,
@@ -93,8 +97,8 @@ class AVERGreenAgent:
         Returns:
             List of evaluation metrics
         """
-        print(f"[AVER] Starting assessment of agent: {agent_id}")
-        print(f"[AVER] Agent URL: {agent_url}")
+        logger.info(f"Starting assessment of agent: {agent_id}")
+        logger.info(f"Agent URL: {agent_url}")
 
         results = []
 
@@ -107,34 +111,34 @@ class AVERGreenAgent:
         else:
             tasks = self._select_tasks(category, difficulty, num_tasks)
 
-        print(f"[AVER] Running {len(tasks)} task(s)")
+        logger.info(f"Running {len(tasks)} task(s)")
 
         # Run each task
         skipped_tasks = []
         for i, task in enumerate(tasks, 1):
-            print(f"\n[AVER] Task {i}/{len(tasks)}: {task.task_id}")
-            print(f"[AVER]   Category: {task.category.value}")
-            print(f"[AVER]   Difficulty: {task.difficulty.value}")
+            logger.info(f"Task {i}/{len(tasks)}: {task.task_id}")
+            logger.debug(f"  Category: {task.category.value}")
+            logger.debug(f"  Difficulty: {task.difficulty.value}")
 
             try:
                 metrics = await self._run_single_task(agent_url, agent_id, task)
                 results.append(metrics)
 
-                print(f"[AVER]   ✅ Score: {metrics.total_score:.1f}/100")
-                print(f"[AVER]   Detection: {metrics.detection_score:.2f}, "
+                logger.info(f"  Score: {metrics.total_score:.1f}/100")
+                logger.debug(f"  Detection: {metrics.detection_score:.2f}, "
                       f"Diagnosis: {metrics.diagnosis_score:.2f}, "
                       f"Recovery: {metrics.recovery_score:.2f}")
 
             except Exception as e:
-                print(f"[AVER]   ❌ SKIPPED: {e}")
+                logger.warning(f"  SKIPPED: {e}")
                 skipped_tasks.append(task.task_id)
                 continue
 
         # Report skipped tasks
         if skipped_tasks:
-            print(f"\n[AVER] ⚠️  Skipped {len(skipped_tasks)} task(s) due to connection failures:")
+            logger.warning(f"Skipped {len(skipped_tasks)} task(s) due to connection failures:")
             for task_id in skipped_tasks:
-                print(f"[AVER]   - {task_id}")
+                logger.warning(f"  - {task_id}")
 
         # Save results
         self._save_results(agent_id, results)

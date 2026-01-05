@@ -103,7 +103,7 @@ endpoint = "llm:gemini-2.0-flash"
 [docker]
 # Container specification
 image = "ghcr.io/YOUR_USERNAME/aver-benchmark:latest"
-base_image = "python:3.11-slim"
+base_image = "python:3.13-slim"
 entrypoint = ["python", "-m", "src.aver.cli"]
 default_args = ["scenarios/aver/scenario.toml"]
 

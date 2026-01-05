@@ -22,10 +22,17 @@ from .models import (
     EvaluationMetrics,
 )
 
+from .logging_config import (
+    setup_logging,
+    get_logger,
+)
+
 __all__ = [
     "TaskScenario",
     "ErrorInjection",
     "DetectionSignals",
     "RecoveryCriteria",
     "EvaluationMetrics",
+    "setup_logging",
+    "get_logger",
 ]

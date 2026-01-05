@@ -4,7 +4,7 @@
 # Build:   docker build -t aver-benchmark .
 # Run:     docker run -p 8010:8010 aver-benchmark
 
-FROM python:3.11-slim
+FROM python:3.13-slim
 
 LABEL maintainer="AVER Research Team"
 LABEL description="AVER Benchmark - Agent Verification & Error Recovery"
@@ -31,16 +31,15 @@ RUN chmod +x run.sh
 RUN mkdir -p results
 
 # Environment variables
-ENV PYTHONPATH="/app:$PYTHONPATH"
+ENV PYTHONPATH="/app"
 ENV PYTHONUNBUFFERED=1
 
-# Cloud Run uses PORT env variable (default 8080)
-# AgentBeats controller runs on 8010 and manages agent ports
-EXPOSE 8010
+# Default AVER server port
+EXPOSE 9000
 
-# Health check
+# Health check (default port 9000 per main.py)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-    CMD curl -f http://localhost:8010/agents || exit 1
+    CMD curl -f http://localhost:9000/health || exit 1
 
-# Run AgentBeats controller (manages the AVER green agent)
-CMD ["agentbeats", "run_ctrl"]
+# Run AVER server (FastAPI with A2A endpoints)
+CMD ["python", "main.py", "run"]
