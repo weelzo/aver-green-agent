@@ -151,14 +151,17 @@ def run(
                     avg_score = sum(r.total_score for r in results) / len(results)
                     result_text += f", Average Score: {avg_score:.1f}/100"
 
+                # Generate unique IDs for A2A compliance
+                import uuid
+                message_id = str(uuid.uuid4())
+
                 return {
                     "jsonrpc": jsonrpc,
                     "id": request_id,
                     "result": {
-                        "message": {
-                            "role": "agent",
-                            "parts": [{"kind": "text", "text": result_text}]
-                        }
+                        "messageId": message_id,
+                        "role": "agent",
+                        "parts": [{"kind": "text", "text": result_text}]
                     }
                 }
             else:
