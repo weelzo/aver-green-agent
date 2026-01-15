@@ -149,6 +149,8 @@ def run(
 
                 # Get participants from environment (JSON list) or single participant
                 participants_json = os.environ.get("PARTICIPANTS_JSON", "")
+                # Get registered AgentBeats ID for results (all results use this ID)
+                registered_agent_id = os.environ.get("AGENTBEATS_AGENT_ID", None)
                 all_results = []
                 all_result_data = []
 
@@ -186,8 +188,10 @@ def run(
                             results = p_results  # For building result data
 
                             # Build per-participant result data
+                            # Use registered AgentBeats ID if available, otherwise use participant name
+                            result_agent_id = registered_agent_id if registered_agent_id else p_name
                             p_result = {
-                                "agent_id": p_name,
+                                "agent_id": result_agent_id,
                                 "num_tasks": len(results),
                                 "results": [r.to_dict() for r in results] if results else [],
                                 "aggregate": {
@@ -227,8 +231,10 @@ def run(
                         )
                     all_results = results
 
+                    # Use registered AgentBeats ID if available
+                    result_agent_id = registered_agent_id if registered_agent_id else participant_id
                     all_result_data = [{
-                        "agent_id": participant_id,
+                        "agent_id": result_agent_id,
                         "num_tasks": len(results),
                         "results": [r.to_dict() for r in results] if results else [],
                         "aggregate": {
