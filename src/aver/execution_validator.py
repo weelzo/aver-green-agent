@@ -37,6 +37,7 @@ class CodeExtractor:
 
     Handles various formats:
     - Markdown code blocks (```python ... ```)
+    - JSON tool calls (<json>{"tool": "run_python", "parameters": {"code": ...}}</json>)
     - Indented code blocks
     - Raw Python code
     - Multiple code blocks (concatenated)
@@ -53,6 +54,12 @@ class CodeExtractor:
         re.DOTALL
     )
 
+    # Pattern for JSON tool calls (used by purple agents)
+    JSON_TOOL_BLOCK = re.compile(
+        r'<json>\s*(.*?)\s*</json>',
+        re.DOTALL | re.IGNORECASE
+    )
+
     def extract(self, output: str) -> Optional[str]:
         """
         Extract Python code from agent output.
@@ -66,7 +73,12 @@ class CodeExtractor:
         if not output:
             return None
 
-        # Try markdown Python blocks first
+        # Try JSON tool calls first (purple agent format)
+        json_code = self._extract_from_json_tool(output)
+        if json_code:
+            return json_code
+
+        # Try markdown Python blocks
         python_blocks = self.MARKDOWN_PYTHON_BLOCK.findall(output)
         if python_blocks:
             return self._combine_blocks(python_blocks)
@@ -84,6 +96,29 @@ class CodeExtractor:
         if raw_code:
             return raw_code
 
+        return None
+
+    def _extract_from_json_tool(self, output: str) -> Optional[str]:
+        """Extract code from JSON tool call format"""
+        import json
+
+        matches = self.JSON_TOOL_BLOCK.findall(output)
+        code_blocks = []
+
+        for match in matches:
+            try:
+                data = json.loads(match)
+                # Handle run_python tool calls
+                if data.get("tool") == "run_python":
+                    params = data.get("parameters", {})
+                    code = params.get("code")
+                    if code:
+                        code_blocks.append(code)
+            except json.JSONDecodeError:
+                continue
+
+        if code_blocks:
+            return self._combine_blocks(code_blocks)
         return None
 
     def _combine_blocks(self, blocks: List[str]) -> str:
