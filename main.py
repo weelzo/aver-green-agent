@@ -134,34 +134,89 @@ def run(
                         text_content = part.get("text", "")
                         break
 
-                # Parse the scenario from environment or use defaults
-                participant_url = os.environ.get("PARTICIPANT_URL", "http://baseline_agent:8001")
-                participant_id = os.environ.get("PARTICIPANT_ID", "baseline_agent")
-
-                # Run assessment against participant
-                results = await green_agent.assess_agent(
-                    agent_url=participant_url,
-                    agent_id=participant_id,
-                    num_tasks=1  # Start with 1 task for testing
-                )
-
-                # Format response with structured results
                 import uuid
                 import json
+
+                # Get participants from environment (JSON list) or single participant
+                participants_json = os.environ.get("PARTICIPANTS_JSON", "")
+                all_results = []
+                all_result_data = []
+
+                if participants_json:
+                    # Multiple participants mode
+                    try:
+                        participants = json.loads(participants_json)
+                        print(f"[AVER] Testing {len(participants)} participants...")
+                        for p in participants:
+                            p_name = p.get("name")
+                            p_url = f"http://{p_name}:8001"
+                            print(f"[AVER] Assessing participant: {p_name} at {p_url}")
+
+                            results = await green_agent.assess_agent(
+                                agent_url=p_url,
+                                agent_id=p_name,
+                                num_tasks=1
+                            )
+                            all_results.extend(results)
+
+                            # Build per-participant result data
+                            p_result = {
+                                "agent_id": p_name,
+                                "num_tasks": len(results),
+                                "results": [r.to_dict() for r in results] if results else [],
+                                "aggregate": {
+                                    "avg_detection": sum(r.detection_score for r in results) / len(results) if results else 0,
+                                    "avg_diagnosis": sum(r.diagnosis_score for r in results) / len(results) if results else 0,
+                                    "avg_recovery": sum(r.recovery_score for r in results) / len(results) if results else 0,
+                                    "avg_total": sum(r.total_score for r in results) / len(results) if results else 0
+                                }
+                            }
+                            all_result_data.append(p_result)
+                    except json.JSONDecodeError:
+                        print(f"[AVER] Warning: Could not parse PARTICIPANTS_JSON")
+                        participants = []
+
+                if not all_results:
+                    # Fallback to single participant mode
+                    participant_url = os.environ.get("PARTICIPANT_URL", "http://baseline_agent:8001")
+                    participant_id = os.environ.get("PARTICIPANT_ID", "baseline_agent")
+
+                    results = await green_agent.assess_agent(
+                        agent_url=participant_url,
+                        agent_id=participant_id,
+                        num_tasks=1
+                    )
+                    all_results = results
+
+                    all_result_data = [{
+                        "agent_id": participant_id,
+                        "num_tasks": len(results),
+                        "results": [r.to_dict() for r in results] if results else [],
+                        "aggregate": {
+                            "avg_detection": sum(r.detection_score for r in results) / len(results) if results else 0,
+                            "avg_diagnosis": sum(r.diagnosis_score for r in results) / len(results) if results else 0,
+                            "avg_recovery": sum(r.recovery_score for r in results) / len(results) if results else 0,
+                            "avg_total": sum(r.total_score for r in results) / len(results) if results else 0
+                        }
+                    }]
+
+                # Format response with all results
                 message_id = str(uuid.uuid4())
 
-                # Build structured results for agentbeats-client
+                # Build combined result data
                 result_data = {
-                    "agent_id": participant_id,
-                    "num_tasks": len(results),
-                    "results": [r.to_dict() for r in results] if results else [],
+                    "total_participants": len(all_result_data),
+                    "total_tasks": len(all_results),
+                    "participants": all_result_data,
                     "aggregate": {
-                        "avg_detection": sum(r.detection_score for r in results) / len(results) if results else 0,
-                        "avg_diagnosis": sum(r.diagnosis_score for r in results) / len(results) if results else 0,
-                        "avg_recovery": sum(r.recovery_score for r in results) / len(results) if results else 0,
-                        "avg_total": sum(r.total_score for r in results) / len(results) if results else 0
+                        "avg_detection": sum(r.detection_score for r in all_results) / len(all_results) if all_results else 0,
+                        "avg_diagnosis": sum(r.diagnosis_score for r in all_results) / len(all_results) if all_results else 0,
+                        "avg_recovery": sum(r.recovery_score for r in all_results) / len(all_results) if all_results else 0,
+                        "avg_total": sum(r.total_score for r in all_results) / len(all_results) if all_results else 0
                     }
                 }
+
+                summary = f"Assessment complete. Participants: {len(all_result_data)}, Tasks: {len(all_results)}, Average Score: {result_data['aggregate']['avg_total']:.1f}/100"
 
                 # Return as JSON data part
                 return {
@@ -171,7 +226,7 @@ def run(
                         "messageId": message_id,
                         "role": "agent",
                         "parts": [
-                            {"text": f"Assessment complete. Tasks: {len(results)}, Average Score: {result_data['aggregate']['avg_total']:.1f}/100"},
+                            {"text": summary},
                             {"data": result_data}
                         ]
                     }
