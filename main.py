@@ -145,23 +145,35 @@ def run(
                     num_tasks=1  # Start with 1 task for testing
                 )
 
-                # Format response in A2A format
-                result_text = f"Assessment complete. Tasks: {len(results)}"
-                if results:
-                    avg_score = sum(r.total_score for r in results) / len(results)
-                    result_text += f", Average Score: {avg_score:.1f}/100"
-
-                # Generate unique IDs for A2A compliance
+                # Format response with structured results
                 import uuid
+                import json
                 message_id = str(uuid.uuid4())
 
+                # Build structured results for agentbeats-client
+                result_data = {
+                    "agent_id": participant_id,
+                    "num_tasks": len(results),
+                    "results": [r.to_dict() for r in results] if results else [],
+                    "aggregate": {
+                        "avg_detection": sum(r.detection_score for r in results) / len(results) if results else 0,
+                        "avg_diagnosis": sum(r.diagnosis_score for r in results) / len(results) if results else 0,
+                        "avg_recovery": sum(r.recovery_score for r in results) / len(results) if results else 0,
+                        "avg_total": sum(r.total_score for r in results) / len(results) if results else 0
+                    }
+                }
+
+                # Return as JSON data part
                 return {
                     "jsonrpc": jsonrpc,
                     "id": request_id,
                     "result": {
                         "messageId": message_id,
                         "role": "agent",
-                        "parts": [{"kind": "text", "text": result_text}]
+                        "parts": [
+                            {"text": f"Assessment complete. Tasks: {len(results)}, Average Score: {result_data['aggregate']['avg_total']:.1f}/100"},
+                            {"data": result_data}
+                        ]
                     }
                 }
             else:
