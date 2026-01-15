@@ -107,6 +107,80 @@ def run(
         """Health check endpoint"""
         return {"status": "healthy", "benchmark": "aver", "version": "0.1.0"}
 
+    # A2A JSON-RPC endpoint (required for agentbeats-client)
+    @api.post("/")
+    async def jsonrpc_handler(request: dict):
+        """
+        Handle A2A JSON-RPC requests.
+
+        The agentbeats-client sends JSON-RPC requests to this endpoint.
+        We parse the message and trigger the appropriate assessment.
+        """
+        jsonrpc = request.get("jsonrpc", "2.0")
+        method = request.get("method", "")
+        params = request.get("params", {})
+        request_id = request.get("id", "1")
+
+        try:
+            if method == "message/send":
+                # Extract message from A2A format
+                message = params.get("message", {})
+                parts = message.get("parts", [])
+
+                # Get text content from message parts
+                text_content = ""
+                for part in parts:
+                    if part.get("kind") == "text":
+                        text_content = part.get("text", "")
+                        break
+
+                # Parse the scenario from environment or use defaults
+                participant_url = os.environ.get("PARTICIPANT_URL", "http://baseline_agent:8001")
+                participant_id = os.environ.get("PARTICIPANT_ID", "baseline_agent")
+
+                # Run assessment against participant
+                results = await green_agent.assess_agent(
+                    agent_url=participant_url,
+                    agent_id=participant_id,
+                    num_tasks=1  # Start with 1 task for testing
+                )
+
+                # Format response in A2A format
+                result_text = f"Assessment complete. Tasks: {len(results)}"
+                if results:
+                    avg_score = sum(r.total_score for r in results) / len(results)
+                    result_text += f", Average Score: {avg_score:.1f}/100"
+
+                return {
+                    "jsonrpc": jsonrpc,
+                    "id": request_id,
+                    "result": {
+                        "message": {
+                            "role": "agent",
+                            "parts": [{"kind": "text", "text": result_text}]
+                        }
+                    }
+                }
+            else:
+                # Unknown method
+                return {
+                    "jsonrpc": jsonrpc,
+                    "id": request_id,
+                    "error": {
+                        "code": -32601,
+                        "message": f"Method not found: {method}"
+                    }
+                }
+        except Exception as e:
+            return {
+                "jsonrpc": jsonrpc,
+                "id": request_id,
+                "error": {
+                    "code": -32000,
+                    "message": str(e)
+                }
+            }
+
     # Get the agent URL from environment (set by AgentBeats controller)
     agent_url = os.environ.get("AGENT_URL", f"http://localhost:{port}")
 
