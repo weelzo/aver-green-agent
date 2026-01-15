@@ -161,8 +161,9 @@ def run(
                         print(f"[AVER] Testing {len(participants)} participants...")
                         for p in participants:
                             p_name = p.get("name")
+                            p_agent_id = p.get("agent_id", p_name)  # Use agent_id (UUID) if available
                             p_url = f"http://{p_name}:8001"
-                            print(f"[AVER] Assessing participant: {p_name} at {p_url}")
+                            print(f"[AVER] Assessing participant: {p_name} ({p_agent_id}) at {p_url}")
 
                             # Run specific tasks if configured, otherwise random
                             p_results = []
@@ -171,7 +172,7 @@ def run(
                                     print(f"[AVER]   Running task: {task_id}")
                                     results = await green_agent.assess_agent(
                                         agent_url=p_url,
-                                        agent_id=p_name,
+                                        agent_id=p_agent_id,
                                         task_id=task_id,
                                         num_tasks=1
                                     )
@@ -179,7 +180,7 @@ def run(
                             else:
                                 results = await green_agent.assess_agent(
                                     agent_url=p_url,
-                                    agent_id=p_name,
+                                    agent_id=p_agent_id,
                                     num_tasks=1
                                 )
                                 p_results.extend(results)
@@ -188,8 +189,8 @@ def run(
                             results = p_results  # For building result data
 
                             # Build per-participant result data
-                            # Use registered AgentBeats ID if available, otherwise use participant name
-                            result_agent_id = registered_agent_id if registered_agent_id else p_name
+                            # In multi-participant mode, use each participant's own agent_id
+                            result_agent_id = p_agent_id
                             p_result = {
                                 "agent_id": result_agent_id,
                                 "num_tasks": len(results),
