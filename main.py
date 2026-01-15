@@ -137,6 +137,16 @@ def run(
                 import uuid
                 import json
 
+                # Get tasks from environment (JSON list of task IDs)
+                tasks_json = os.environ.get("TASKS_JSON", "")
+                task_ids = []
+                if tasks_json:
+                    try:
+                        task_ids = json.loads(tasks_json)
+                        print(f"[AVER] Configured tasks: {task_ids}")
+                    except json.JSONDecodeError:
+                        print(f"[AVER] Warning: Could not parse TASKS_JSON")
+
                 # Get participants from environment (JSON list) or single participant
                 participants_json = os.environ.get("PARTICIPANTS_JSON", "")
                 all_results = []
@@ -152,12 +162,28 @@ def run(
                             p_url = f"http://{p_name}:8001"
                             print(f"[AVER] Assessing participant: {p_name} at {p_url}")
 
-                            results = await green_agent.assess_agent(
-                                agent_url=p_url,
-                                agent_id=p_name,
-                                num_tasks=1
-                            )
-                            all_results.extend(results)
+                            # Run specific tasks if configured, otherwise random
+                            p_results = []
+                            if task_ids:
+                                for task_id in task_ids:
+                                    print(f"[AVER]   Running task: {task_id}")
+                                    results = await green_agent.assess_agent(
+                                        agent_url=p_url,
+                                        agent_id=p_name,
+                                        task_id=task_id,
+                                        num_tasks=1
+                                    )
+                                    p_results.extend(results)
+                            else:
+                                results = await green_agent.assess_agent(
+                                    agent_url=p_url,
+                                    agent_id=p_name,
+                                    num_tasks=1
+                                )
+                                p_results.extend(results)
+
+                            all_results.extend(p_results)
+                            results = p_results  # For building result data
 
                             # Build per-participant result data
                             p_result = {
@@ -181,11 +207,24 @@ def run(
                     participant_url = os.environ.get("PARTICIPANT_URL", "http://baseline_agent:8001")
                     participant_id = os.environ.get("PARTICIPANT_ID", "baseline_agent")
 
-                    results = await green_agent.assess_agent(
-                        agent_url=participant_url,
-                        agent_id=participant_id,
-                        num_tasks=1
-                    )
+                    # Run specific tasks if configured, otherwise random
+                    if task_ids:
+                        results = []
+                        for task_id in task_ids:
+                            print(f"[AVER] Running task: {task_id}")
+                            task_results = await green_agent.assess_agent(
+                                agent_url=participant_url,
+                                agent_id=participant_id,
+                                task_id=task_id,
+                                num_tasks=1
+                            )
+                            results.extend(task_results)
+                    else:
+                        results = await green_agent.assess_agent(
+                            agent_url=participant_url,
+                            agent_id=participant_id,
+                            num_tasks=1
+                        )
                     all_results = results
 
                     all_result_data = [{
