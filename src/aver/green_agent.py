@@ -189,7 +189,13 @@ class AVERGreenAgent:
         task: TaskScenario
     ) -> AgentTrace:
         """
-        Execute purple agent on task and collect trace
+        Execute purple agent on task and collect trace.
+
+        Implements multi-turn conversation:
+        1. Send task to agent
+        2. Agent responds with tool call or final answer
+        3. Execute tool and return result
+        4. Repeat until done or max turns
 
         Args:
             agent_url: Agent URL
@@ -199,14 +205,14 @@ class AVERGreenAgent:
         Returns:
             AgentTrace with execution history
         """
+        import json
+        import re
+
         # Initialize trace
         trace = AgentTrace(
             task_id=task.task_id,
             agent_id=agent_id
         )
-
-        # Build initial message
-        message = self._build_task_message(task)
 
         print(f"[AVER]     Task description: {task.task_description[:100]}...")
         print(f"[AVER]     Available tools: {[t.name for t in task.tools]}")
@@ -216,7 +222,10 @@ class AVERGreenAgent:
 
         print(f"[AVER]     Connecting to agent at: {agent_url}")
 
-        # Retry logic
+        # Multi-turn settings
+        max_turns = task.optimal_turns + 2 if task.optimal_turns else 5
+
+        # Retry logic for initial connection
         max_retries = 3
         last_error = None
 
@@ -230,25 +239,70 @@ class AVERGreenAgent:
                 task_content = f"{task.task_description}\n\nAvailable tools:\n"
                 for tool in task.tools:
                     task_content += f"- {tool.name}: {tool.description}\n"
+                task_content += "\nWhen you have completed the task, use: {\"tool\": \"respond\", \"parameters\": {\"message\": \"your final answer\"}}"
 
-                # Send task to agent
+                # Send initial task to agent
                 response = await client.start_conversation(task_content)
                 collector.add_message(response)
 
-                print(f"[AVER]     ✅ Received response from agent ({len(response.content)} chars)")
-
-                # Extract model name from response metadata
                 model_name = response.metadata.get("model", "unknown")
+                print(f"[AVER]     Model: {model_name}")
+                print(f"[AVER]     Turn 1: Received response ({len(response.content)} chars)")
+
+                # Multi-turn conversation loop
+                all_responses = [response.content]
+                turn = 1
+                context_id = response.context_id
+                parent_id = response.message_id
+
+                while turn < max_turns:
+                    # Parse the response to check for tool calls
+                    tool_call = self._parse_tool_call(response.content)
+
+                    if not tool_call:
+                        # No tool call found, treat as final response
+                        print(f"[AVER]     No tool call in response, ending conversation")
+                        break
+
+                    tool_name = tool_call.get("tool", "")
+                    params = tool_call.get("parameters", {})
+
+                    # Check if agent is done
+                    if tool_name == "respond":
+                        print(f"[AVER]     Agent completed task")
+                        break
+
+                    # Execute the tool
+                    print(f"[AVER]     Turn {turn}: Agent called tool '{tool_name}'")
+                    tool_result = await self._execute_tool(tool_name, params, task)
+
+                    # Send tool result back to agent
+                    turn += 1
+                    result_message = f"Tool result for {tool_name}:\n{tool_result}"
+
+                    response = await client.continue_conversation(
+                        content=result_message,
+                        context_id=context_id,
+                        parent_id=parent_id
+                    )
+                    collector.add_message(response)
+                    all_responses.append(response.content)
+                    parent_id = response.message_id
+
+                    print(f"[AVER]     Turn {turn}: Received response ({len(response.content)} chars)")
+
+                # Combine all responses for evaluation
+                final_output = "\n\n---\n\n".join(all_responses)
 
                 # Convert to trace
                 trace = collector.to_agent_trace(
                     task_id=task.task_id,
                     agent_id=agent_id,
-                    final_output=response.content,
+                    final_output=final_output,
                     model_name=model_name
                 )
 
-                print(f"[AVER]     Model used: {model_name}")
+                print(f"[AVER]     ✅ Completed in {turn} turns ({len(trace.turns)} agent responses)")
 
                 # Close client
                 await client.close()
@@ -266,6 +320,131 @@ class AVERGreenAgent:
 
         # All retries failed - raise exception to skip this task
         raise Exception(f"Failed to connect to agent after {max_retries} attempts: {last_error}")
+
+    def _parse_tool_call(self, response: str) -> Optional[Dict[str, Any]]:
+        """
+        Parse tool call from agent response.
+
+        Looks for JSON in <json></json> tags.
+
+        Args:
+            response: Agent's response text
+
+        Returns:
+            Parsed tool call dict or None
+        """
+        import json
+        import re
+
+        # Look for <json>...</json> blocks
+        pattern = re.compile(r'<json>\s*(.*?)\s*</json>', re.DOTALL | re.IGNORECASE)
+        matches = pattern.findall(response)
+
+        for match in matches:
+            try:
+                # Try direct JSON parse
+                return json.loads(match)
+            except json.JSONDecodeError:
+                # Try fixing newlines in strings
+                try:
+                    fixed = re.sub(
+                        r'("(?:[^"\\]|\\.)*")',
+                        lambda m: m.group(0).replace('\n', '\\n').replace('\r', '\\r'),
+                        match
+                    )
+                    return json.loads(fixed)
+                except json.JSONDecodeError:
+                    continue
+
+        return None
+
+    async def _execute_tool(
+        self,
+        tool_name: str,
+        params: Dict[str, Any],
+        task: TaskScenario
+    ) -> str:
+        """
+        Execute a tool call and return the result.
+
+        For AVER benchmark, we simulate tool execution to test
+        the agent's error detection and recovery capabilities.
+
+        Args:
+            tool_name: Name of the tool to execute
+            params: Tool parameters
+            task: Current task (for context)
+
+        Returns:
+            Tool execution result as string
+        """
+        if tool_name == "run_python":
+            code = params.get("code", "")
+            return await self._execute_python(code, task)
+
+        elif tool_name == "search_docs":
+            query = params.get("query", "")
+            return self._search_docs(query, task)
+
+        else:
+            return f"Unknown tool: {tool_name}"
+
+    async def _execute_python(self, code: str, task: TaskScenario) -> str:
+        """
+        Execute Python code and return result.
+
+        Uses the sandbox for safe execution.
+
+        Args:
+            code: Python code to execute
+            task: Current task
+
+        Returns:
+            Execution result or error message
+        """
+        from .sandbox import CodeSandbox
+
+        # Create sandbox with task's environment settings
+        env = task.execution_validity.environment if task.execution_validity else None
+        timeout = env.timeout_seconds if env else 10
+
+        sandbox = CodeSandbox(timeout_seconds=timeout)
+        result = sandbox.execute_python(code)
+
+        if result.get("success"):
+            stdout = result.get("stdout", "")
+            return f"Execution successful.\nOutput:\n{stdout}" if stdout else "Execution successful. No output."
+        else:
+            error = result.get("error") or result.get("stderr", "Unknown error")
+            return f"Execution failed:\n{error}"
+
+    def _search_docs(self, query: str, task: TaskScenario) -> str:
+        """
+        Simulate documentation search.
+
+        Returns helpful hints based on the task's error type.
+
+        Args:
+            query: Search query
+            task: Current task
+
+        Returns:
+            Search results
+        """
+        from .models import ErrorCategory
+
+        query_lower = query.lower()
+
+        # For hallucination tasks, return correct information
+        if task.category == ErrorCategory.HALLUCINATION:
+            error_data = task.error_injection.error_data or {}
+            ground_truth = error_data.get("ground_truth", "") or task.error_injection.ground_truth
+
+            if ground_truth:
+                return f"Documentation search results for '{query}':\n\n{ground_truth}\n\nNote: Always verify method signatures against official documentation."
+
+        # Generic response
+        return f"Documentation search for '{query}':\n\nNo specific documentation found. Please verify the method exists in the library's official documentation."
 
     def _build_task_message(self, task: TaskScenario) -> Dict[str, Any]:
         """

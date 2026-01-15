@@ -101,21 +101,35 @@ class CodeExtractor:
     def _extract_from_json_tool(self, output: str) -> Optional[str]:
         """Extract code from JSON tool call format"""
         import json
+        import re
 
         matches = self.JSON_TOOL_BLOCK.findall(output)
         code_blocks = []
 
         for match in matches:
             try:
+                # First try direct parsing
                 data = json.loads(match)
-                # Handle run_python tool calls
-                if data.get("tool") == "run_python":
-                    params = data.get("parameters", {})
-                    code = params.get("code")
-                    if code:
-                        code_blocks.append(code)
             except json.JSONDecodeError:
-                continue
+                # If JSON fails, try escaping newlines within string values
+                # This handles cases where LLM outputs literal newlines in code
+                try:
+                    # Escape unescaped newlines inside strings
+                    fixed_match = re.sub(
+                        r'("(?:[^"\\]|\\.)*")',
+                        lambda m: m.group(0).replace('\n', '\\n').replace('\r', '\\r').replace('\t', '\\t'),
+                        match
+                    )
+                    data = json.loads(fixed_match)
+                except json.JSONDecodeError:
+                    continue
+
+            # Handle run_python tool calls
+            if data.get("tool") == "run_python":
+                params = data.get("parameters", {})
+                code = params.get("code")
+                if code:
+                    code_blocks.append(code)
 
         if code_blocks:
             return self._combine_blocks(code_blocks)
