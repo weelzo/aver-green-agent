@@ -13,7 +13,13 @@ Commands:
 import asyncio
 import os
 import sys
+import uuid
+import json
 from pathlib import Path
+from typing import Dict, Any, Optional
+from dataclasses import dataclass, field
+from datetime import datetime
+from enum import Enum
 
 try:
     import typer
@@ -26,6 +32,86 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from src.aver.green_agent import AVERGreenAgent
 from src.aver.task_suite import TaskSuite
+
+
+# =============================================================================
+# A2A Task State Management
+# =============================================================================
+
+class TaskState(str, Enum):
+    """A2A task states per protocol specification"""
+    SUBMITTED = "submitted"
+    WORKING = "working"
+    INPUT_REQUIRED = "input-required"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELED = "canceled"
+
+
+@dataclass
+class A2ATask:
+    """Represents an A2A task with state tracking"""
+    task_id: str
+    context_id: str
+    state: TaskState = TaskState.SUBMITTED
+    created_at: str = field(default_factory=lambda: datetime.now().isoformat())
+    updated_at: str = field(default_factory=lambda: datetime.now().isoformat())
+    result: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to A2A Task format"""
+        return {
+            "id": self.task_id,
+            "contextId": self.context_id,
+            "status": {
+                "state": self.state.value,
+                "timestamp": self.updated_at
+            },
+            "artifacts": [{"data": self.result}] if self.result else []
+        }
+
+    def update_state(self, state: TaskState, result: Optional[Dict] = None, error: Optional[str] = None):
+        """Update task state"""
+        self.state = state
+        self.updated_at = datetime.now().isoformat()
+        if result:
+            self.result = result
+        if error:
+            self.error = error
+
+
+class TaskStore:
+    """In-memory store for A2A tasks"""
+
+    def __init__(self):
+        self._tasks: Dict[str, A2ATask] = {}
+
+    def create_task(self, context_id: str) -> A2ATask:
+        """Create a new task"""
+        task_id = str(uuid.uuid4())
+        task = A2ATask(task_id=task_id, context_id=context_id)
+        self._tasks[task_id] = task
+        return task
+
+    def get_task(self, task_id: str) -> Optional[A2ATask]:
+        """Get task by ID"""
+        return self._tasks.get(task_id)
+
+    def update_task(self, task_id: str, state: TaskState, result: Optional[Dict] = None, error: Optional[str] = None):
+        """Update task state"""
+        task = self._tasks.get(task_id)
+        if task:
+            task.update_state(state, result, error)
+
+
+# Global task store
+task_store = TaskStore()
+
+
+# =============================================================================
+# CLI Application
+# =============================================================================
 
 # Create Typer CLI app
 app = typer.Typer(
@@ -97,24 +183,168 @@ def run(
     # Create FastAPI app
     api = FastAPI(
         title="AVER Benchmark",
-        description="Agent Verification & Error Recovery - Green Agent",
-        version="0.1.0"
+        description="Agent Verification & Error Recovery - Green Agent (Async)",
+        version="0.2.0"
     )
 
     # Health check endpoint
     @api.get("/health")
     async def health():
         """Health check endpoint"""
-        return {"status": "healthy", "benchmark": "aver", "version": "0.1.0"}
+        return {"status": "healthy", "benchmark": "aver", "version": "0.2.0"}
 
-    # A2A JSON-RPC endpoint (required for agentbeats-client)
+    # =========================================================================
+    # Background Assessment Runner
+    # =========================================================================
+
+    async def run_assessment_background(task_id: str, green_agent: AVERGreenAgent):
+        """
+        Run assessment in background and update task state.
+
+        This allows the JSON-RPC handler to return immediately with a
+        'working' state while the assessment runs asynchronously.
+        """
+        try:
+            # Update to working state
+            task_store.update_task(task_id, TaskState.WORKING)
+            print(f"[AVER] Task {task_id[:8]}... started processing")
+
+            # Get configuration from environment
+            tasks_json = os.environ.get("TASKS_JSON", "")
+            aver_task_ids = []
+            if tasks_json:
+                try:
+                    aver_task_ids = json.loads(tasks_json)
+                    print(f"[AVER] Configured tasks: {aver_task_ids}")
+                except json.JSONDecodeError:
+                    print(f"[AVER] Warning: Could not parse TASKS_JSON")
+
+            participants_json = os.environ.get("PARTICIPANTS_JSON", "")
+            registered_agent_id = os.environ.get("AGENTBEATS_AGENT_ID", None)
+            all_results = []
+            all_result_data = []
+
+            if participants_json:
+                # Multiple participants mode
+                try:
+                    participants = json.loads(participants_json)
+                    print(f"[AVER] Testing {len(participants)} participants...")
+                    for p in participants:
+                        p_name = p.get("name")
+                        p_agent_id = p.get("agent_id", p_name)
+                        p_url = f"http://{p_name}:8001"
+                        print(f"[AVER] Assessing participant: {p_name} ({p_agent_id}) at {p_url}")
+
+                        p_results = []
+                        if aver_task_ids:
+                            for tid in aver_task_ids:
+                                print(f"[AVER]   Running task: {tid}")
+                                results = await green_agent.assess_agent(
+                                    agent_url=p_url,
+                                    agent_id=p_agent_id,
+                                    task_id=tid,
+                                    num_tasks=1
+                                )
+                                p_results.extend(results)
+                        else:
+                            results = await green_agent.assess_agent(
+                                agent_url=p_url,
+                                agent_id=p_agent_id,
+                                num_tasks=1
+                            )
+                            p_results.extend(results)
+
+                        all_results.extend(p_results)
+
+                        p_result = {
+                            "agent_id": p_agent_id,
+                            "num_tasks": len(p_results),
+                            "results": [r.to_dict() for r in p_results] if p_results else [],
+                            "aggregate": {
+                                "avg_detection": sum(r.detection_score for r in p_results) / len(p_results) if p_results else 0,
+                                "avg_diagnosis": sum(r.diagnosis_score for r in p_results) / len(p_results) if p_results else 0,
+                                "avg_recovery": sum(r.recovery_score for r in p_results) / len(p_results) if p_results else 0,
+                                "avg_total": sum(r.total_score for r in p_results) / len(p_results) if p_results else 0
+                            }
+                        }
+                        all_result_data.append(p_result)
+                except json.JSONDecodeError:
+                    print(f"[AVER] Warning: Could not parse PARTICIPANTS_JSON")
+
+            if not all_results:
+                # Fallback to single participant mode
+                participant_url = os.environ.get("PARTICIPANT_URL", "http://baseline_agent:8001")
+                participant_id = os.environ.get("PARTICIPANT_ID", "baseline_agent")
+
+                if aver_task_ids:
+                    results = []
+                    for tid in aver_task_ids:
+                        print(f"[AVER] Running task: {tid}")
+                        task_results = await green_agent.assess_agent(
+                            agent_url=participant_url,
+                            agent_id=participant_id,
+                            task_id=tid,
+                            num_tasks=1
+                        )
+                        results.extend(task_results)
+                else:
+                    results = await green_agent.assess_agent(
+                        agent_url=participant_url,
+                        agent_id=participant_id,
+                        num_tasks=1
+                    )
+                all_results = results
+
+                result_agent_id = registered_agent_id if registered_agent_id else participant_id
+                all_result_data = [{
+                    "agent_id": result_agent_id,
+                    "num_tasks": len(results),
+                    "results": [r.to_dict() for r in results] if results else [],
+                    "aggregate": {
+                        "avg_detection": sum(r.detection_score for r in results) / len(results) if results else 0,
+                        "avg_diagnosis": sum(r.diagnosis_score for r in results) / len(results) if results else 0,
+                        "avg_recovery": sum(r.recovery_score for r in results) / len(results) if results else 0,
+                        "avg_total": sum(r.total_score for r in results) / len(results) if results else 0
+                    }
+                }]
+
+            # Build final result
+            result_data = {
+                "total_participants": len(all_result_data),
+                "total_tasks": len(all_results),
+                "participants": all_result_data,
+                "aggregate": {
+                    "avg_detection": sum(r.detection_score for r in all_results) / len(all_results) if all_results else 0,
+                    "avg_diagnosis": sum(r.diagnosis_score for r in all_results) / len(all_results) if all_results else 0,
+                    "avg_recovery": sum(r.recovery_score for r in all_results) / len(all_results) if all_results else 0,
+                    "avg_total": sum(r.total_score for r in all_results) / len(all_results) if all_results else 0
+                }
+            }
+
+            # Update task to completed
+            task_store.update_task(task_id, TaskState.COMPLETED, result=result_data)
+            print(f"[AVER] Task {task_id[:8]}... completed successfully")
+
+        except Exception as e:
+            # Update task to failed
+            task_store.update_task(task_id, TaskState.FAILED, error=str(e))
+            print(f"[AVER] Task {task_id[:8]}... failed: {e}")
+
+    # =========================================================================
+    # A2A JSON-RPC Endpoint
+    # =========================================================================
+
     @api.post("/")
     async def jsonrpc_handler(request: dict):
         """
-        Handle A2A JSON-RPC requests.
+        Handle A2A JSON-RPC requests with async task support.
 
-        The agentbeats-client sends JSON-RPC requests to this endpoint.
-        We parse the message and trigger the appropriate assessment.
+        Supports:
+        - message/send: Start assessment, return task in 'working' state immediately
+        - tasks/get: Poll for task status and results
+
+        This implements the A2A async pattern where long-running operations
+        return immediately with a task ID, and clients poll for completion.
         """
         jsonrpc = request.get("jsonrpc", "2.0")
         method = request.get("method", "")
@@ -122,163 +352,88 @@ def run(
         request_id = request.get("id", "1")
 
         try:
+            # =================================================================
+            # message/send - Start new assessment (async)
+            # =================================================================
             if method == "message/send":
-                # Extract message from A2A format
+                # Extract message context
                 message = params.get("message", {})
-                parts = message.get("parts", [])
+                context_id = message.get("contextId", str(uuid.uuid4()))
 
-                # Get text content from message parts
-                text_content = ""
-                for part in parts:
-                    if part.get("kind") == "text":
-                        text_content = part.get("text", "")
-                        break
+                # Create task in store
+                task = task_store.create_task(context_id)
+                print(f"[AVER] Created task {task.task_id[:8]}... for assessment")
 
-                import uuid
-                import json
+                # Start assessment in background
+                asyncio.create_task(run_assessment_background(task.task_id, green_agent))
 
-                # Get tasks from environment (JSON list of task IDs)
-                tasks_json = os.environ.get("TASKS_JSON", "")
-                task_ids = []
-                if tasks_json:
-                    try:
-                        task_ids = json.loads(tasks_json)
-                        print(f"[AVER] Configured tasks: {task_ids}")
-                    except json.JSONDecodeError:
-                        print(f"[AVER] Warning: Could not parse TASKS_JSON")
+                # Return immediately with task in 'working' state
+                # Update state to working before returning
+                task.update_state(TaskState.WORKING)
 
-                # Get participants from environment (JSON list) or single participant
-                participants_json = os.environ.get("PARTICIPANTS_JSON", "")
-                # Get registered AgentBeats ID for results (all results use this ID)
-                registered_agent_id = os.environ.get("AGENTBEATS_AGENT_ID", None)
-                all_results = []
-                all_result_data = []
-
-                if participants_json:
-                    # Multiple participants mode
-                    try:
-                        participants = json.loads(participants_json)
-                        print(f"[AVER] Testing {len(participants)} participants...")
-                        for p in participants:
-                            p_name = p.get("name")
-                            p_agent_id = p.get("agent_id", p_name)  # Use agent_id (UUID) if available
-                            p_url = f"http://{p_name}:8001"
-                            print(f"[AVER] Assessing participant: {p_name} ({p_agent_id}) at {p_url}")
-
-                            # Run specific tasks if configured, otherwise random
-                            p_results = []
-                            if task_ids:
-                                for task_id in task_ids:
-                                    print(f"[AVER]   Running task: {task_id}")
-                                    results = await green_agent.assess_agent(
-                                        agent_url=p_url,
-                                        agent_id=p_agent_id,
-                                        task_id=task_id,
-                                        num_tasks=1
-                                    )
-                                    p_results.extend(results)
-                            else:
-                                results = await green_agent.assess_agent(
-                                    agent_url=p_url,
-                                    agent_id=p_agent_id,
-                                    num_tasks=1
-                                )
-                                p_results.extend(results)
-
-                            all_results.extend(p_results)
-                            results = p_results  # For building result data
-
-                            # Build per-participant result data
-                            # In multi-participant mode, use each participant's own agent_id
-                            result_agent_id = p_agent_id
-                            p_result = {
-                                "agent_id": result_agent_id,
-                                "num_tasks": len(results),
-                                "results": [r.to_dict() for r in results] if results else [],
-                                "aggregate": {
-                                    "avg_detection": sum(r.detection_score for r in results) / len(results) if results else 0,
-                                    "avg_diagnosis": sum(r.diagnosis_score for r in results) / len(results) if results else 0,
-                                    "avg_recovery": sum(r.recovery_score for r in results) / len(results) if results else 0,
-                                    "avg_total": sum(r.total_score for r in results) / len(results) if results else 0
-                                }
-                            }
-                            all_result_data.append(p_result)
-                    except json.JSONDecodeError:
-                        print(f"[AVER] Warning: Could not parse PARTICIPANTS_JSON")
-                        participants = []
-
-                if not all_results:
-                    # Fallback to single participant mode
-                    participant_url = os.environ.get("PARTICIPANT_URL", "http://baseline_agent:8001")
-                    participant_id = os.environ.get("PARTICIPANT_ID", "baseline_agent")
-
-                    # Run specific tasks if configured, otherwise random
-                    if task_ids:
-                        results = []
-                        for task_id in task_ids:
-                            print(f"[AVER] Running task: {task_id}")
-                            task_results = await green_agent.assess_agent(
-                                agent_url=participant_url,
-                                agent_id=participant_id,
-                                task_id=task_id,
-                                num_tasks=1
-                            )
-                            results.extend(task_results)
-                    else:
-                        results = await green_agent.assess_agent(
-                            agent_url=participant_url,
-                            agent_id=participant_id,
-                            num_tasks=1
-                        )
-                    all_results = results
-
-                    # Use registered AgentBeats ID if available
-                    result_agent_id = registered_agent_id if registered_agent_id else participant_id
-                    all_result_data = [{
-                        "agent_id": result_agent_id,
-                        "num_tasks": len(results),
-                        "results": [r.to_dict() for r in results] if results else [],
-                        "aggregate": {
-                            "avg_detection": sum(r.detection_score for r in results) / len(results) if results else 0,
-                            "avg_diagnosis": sum(r.diagnosis_score for r in results) / len(results) if results else 0,
-                            "avg_recovery": sum(r.recovery_score for r in results) / len(results) if results else 0,
-                            "avg_total": sum(r.total_score for r in results) / len(results) if results else 0
-                        }
-                    }]
-
-                # Format response with all results
-                message_id = str(uuid.uuid4())
-
-                # Build combined result data
-                result_data = {
-                    "total_participants": len(all_result_data),
-                    "total_tasks": len(all_results),
-                    "participants": all_result_data,
-                    "aggregate": {
-                        "avg_detection": sum(r.detection_score for r in all_results) / len(all_results) if all_results else 0,
-                        "avg_diagnosis": sum(r.diagnosis_score for r in all_results) / len(all_results) if all_results else 0,
-                        "avg_recovery": sum(r.recovery_score for r in all_results) / len(all_results) if all_results else 0,
-                        "avg_total": sum(r.total_score for r in all_results) / len(all_results) if all_results else 0
-                    }
-                }
-
-                summary = f"Assessment complete. Participants: {len(all_result_data)}, Tasks: {len(all_results)}, Average Score: {result_data['aggregate']['avg_total']:.1f}/100"
-
-                # Return as JSON data part
                 return {
                     "jsonrpc": jsonrpc,
                     "id": request_id,
                     "result": {
-                        "messageId": message_id,
-                        "role": "agent",
-                        "parts": [
-                            {"text": summary},
-                            {"data": result_data}
-                        ]
+                        "task": task.to_dict()
                     }
                 }
+
+            # =================================================================
+            # tasks/get - Poll for task status
+            # =================================================================
+            elif method == "tasks/get":
+                task_id = params.get("id")
+                if not task_id:
+                    return {
+                        "jsonrpc": jsonrpc,
+                        "id": request_id,
+                        "error": {
+                            "code": -32602,
+                            "message": "Missing required parameter: id"
+                        }
+                    }
+
+                task = task_store.get_task(task_id)
+                if not task:
+                    return {
+                        "jsonrpc": jsonrpc,
+                        "id": request_id,
+                        "error": {
+                            "code": -32001,
+                            "message": f"Task not found: {task_id}"
+                        }
+                    }
+
+                # Build response based on task state
+                result = {"task": task.to_dict()}
+
+                # If completed, include final message with results
+                if task.state == TaskState.COMPLETED and task.result:
+                    summary = f"Assessment complete. Participants: {task.result.get('total_participants', 0)}, Tasks: {task.result.get('total_tasks', 0)}, Average Score: {task.result.get('aggregate', {}).get('avg_total', 0):.1f}/100"
+                    result["message"] = {
+                        "messageId": str(uuid.uuid4()),
+                        "role": "agent",
+                        "parts": [
+                            {"kind": "text", "text": summary},
+                            {"kind": "data", "data": task.result}
+                        ]
+                    }
+
+                # If failed, include error
+                if task.state == TaskState.FAILED and task.error:
+                    result["error"] = task.error
+
+                return {
+                    "jsonrpc": jsonrpc,
+                    "id": request_id,
+                    "result": result
+                }
+
+            # =================================================================
+            # Unknown method
+            # =================================================================
             else:
-                # Unknown method
                 return {
                     "jsonrpc": jsonrpc,
                     "id": request_id,
@@ -287,6 +442,7 @@ def run(
                         "message": f"Method not found: {method}"
                     }
                 }
+
         except Exception as e:
             return {
                 "jsonrpc": jsonrpc,
@@ -307,11 +463,13 @@ def run(
         return {
             # Required fields for A2A AgentCard
             "name": "aver-benchmark",
-            "version": "0.1.0",
-            "description": "AVER Benchmark: Measuring AI agents' meta-cognitive capabilities for detecting, diagnosing, and recovering from errors.",
+            "version": "0.2.0",
+            "description": "AVER Benchmark: Measuring AI agents' meta-cognitive capabilities for detecting, diagnosing, and recovering from errors. Supports async task execution with polling via tasks/get.",
             "url": agent_url,
 
             # Capabilities (A2A format)
+            # - streaming: False means client should poll with tasks/get
+            # - stateTransitionHistory: True means task states are tracked
             "capabilities": {
                 "streaming": False,
                 "pushNotifications": False,
