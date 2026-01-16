@@ -6,11 +6,13 @@ earthshaker>=0.2.1
 agentbeats>=1.2.6
 typer>=0.9.0
 
-# Web Framework
+# Web Framework & A2A SDK
 fastapi>=0.104.0
 uvicorn>=0.24.0
 pydantic>=2.0.0
 pydantic-settings>=2.0.0
+a2a-sdk[http-server]>=0.3.0
+starlette>=0.27.0
 
 # HTTP & Networking
 httpx>=0.25.0

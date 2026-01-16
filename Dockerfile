@@ -39,7 +39,7 @@ EXPOSE 9000
 
 # Health check (default port 9000 per main.py)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-    CMD curl -f http://localhost:9000/health || exit 1
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:9000/health')" || exit 1
 
-# Run AVER server (FastAPI with A2A endpoints)
+# Run AVER server (A2A SDK with Starlette)
 CMD ["python", "main.py", "run"]
