@@ -371,12 +371,11 @@ def run(
                 # Update state to working before returning
                 task.update_state(TaskState.WORKING)
 
+                # A2A protocol: result should be the Task directly, not wrapped
                 return {
                     "jsonrpc": jsonrpc,
                     "id": request_id,
-                    "result": {
-                        "task": task.to_dict()
-                    }
+                    "result": task.to_dict()
                 }
 
             # =================================================================
@@ -405,29 +404,29 @@ def run(
                         }
                     }
 
-                # Build response based on task state
-                result = {"task": task.to_dict()}
+                # Build response - return Task directly per A2A protocol
+                task_dict = task.to_dict()
 
-                # If completed, include final message with results
+                # If completed, add message with results to artifacts
                 if task.state == TaskState.COMPLETED and task.result:
                     summary = f"Assessment complete. Participants: {task.result.get('total_participants', 0)}, Tasks: {task.result.get('total_tasks', 0)}, Average Score: {task.result.get('aggregate', {}).get('avg_total', 0):.1f}/100"
-                    result["message"] = {
-                        "messageId": str(uuid.uuid4()),
-                        "role": "agent",
-                        "parts": [
-                            {"kind": "text", "text": summary},
-                            {"kind": "data", "data": task.result}
-                        ]
-                    }
+                    task_dict["artifacts"] = [
+                        {
+                            "parts": [
+                                {"kind": "text", "text": summary},
+                                {"kind": "data", "data": task.result}
+                            ]
+                        }
+                    ]
 
-                # If failed, include error
+                # If failed, include error in status
                 if task.state == TaskState.FAILED and task.error:
-                    result["error"] = task.error
+                    task_dict["status"]["message"] = task.error
 
                 return {
                     "jsonrpc": jsonrpc,
                     "id": request_id,
-                    "result": result
+                    "result": task_dict
                 }
 
             # =================================================================
