@@ -512,6 +512,9 @@ class AVERGreenAgent:
         filepath = self.results_dir / filename
 
         data = {
+            "participants": {
+                "purple_agent": agent_id
+            },
             "agent_id": agent_id,
             "timestamp": datetime.now().isoformat(),
             "num_tasks": len(results),

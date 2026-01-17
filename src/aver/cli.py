@@ -346,6 +346,9 @@ async def run_scenario(scenario_path: str):
             # Create result document
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             result_doc = {
+                "participants": {
+                    "purple_agent": agent_id
+                },
                 "agent_id": agent_id,
                 "timestamp": datetime.now().isoformat(),
                 "num_tasks": len(results),

@@ -154,6 +154,9 @@ async def run_consistency_suite(
 
     # Aggregate statistics
     aggregate = {
+        "participants": {
+            "purple_agent": agent_id
+        },
         "agent_id": agent_id,
         "num_tasks": len(tasks),
         "k": k,
