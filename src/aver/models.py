@@ -16,6 +16,7 @@ class ErrorCategory(Enum):
     TOOL_MISUSE = "tool_misuse"
     CONTEXT_LOSS = "context_loss"
     ADVERSARIAL = "adversarial"
+    NEGATIVE_CONTROL = "negative_control"
 
 
 class DifficultyLevel(Enum):
@@ -493,7 +494,7 @@ class TaskScenario:
 
         return cls(
             task_id=data["task_id"],
-            category=ErrorCategory(data["category"]) if data["category"] != "negative_control" else ErrorCategory.HALLUCINATION,
+            category=ErrorCategory(data["category"]),
             difficulty=DifficultyLevel(data["difficulty"]),
             domain=TaskDomain(data["domain"]),
             task_description=data["task_description"],
